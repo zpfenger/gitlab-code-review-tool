@@ -1,0 +1,6 @@
+admin:
+  email: ''
+  nickname: ''
+  password_hash: $2b$12$QiL2PeUWESwJNKPnzVxd/OA7D24ehGRqu9ogbuOeNUGyDC0/ZJAOa
+  session_timeout: 3600
+  username: admin

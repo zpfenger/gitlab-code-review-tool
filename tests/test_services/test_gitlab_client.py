@@ -1,0 +1,203 @@
+# tests/test_services/test_gitlab_client.py
+"""GitLab 客户端测试"""
+import pytest
+from unittest.mock import Mock, patch, MagicMock
+from app.services.gitlab_client import GitLabClient
+
+
+class TestGitLabClient:
+    """GitLab 客户端测试类"""
+
+    @pytest.fixture
+    def mock_gitlab(self):
+        """Mock GitLab 实例"""
+        with patch('app.services.gitlab_client.gitlab.Gitlab') as mock:
+            yield mock
+
+    @pytest.fixture
+    def client(self, mock_gitlab):
+        """创建 GitLab 客户端实例"""
+        return GitLabClient(
+            gitlab_url="https://gitlab.example.com",
+            access_token="test-token"
+        )
+
+    def test_init(self, mock_gitlab):
+        """测试初始化"""
+        client = GitLabClient(
+            gitlab_url="https://gitlab.example.com",
+            access_token="test-token"
+        )
+        mock_gitlab.assert_called_once_with(
+            "https://gitlab.example.com",
+            private_token="test-token"
+        )
+
+    def test_test_connection_success(self, client, mock_gitlab):
+        """测试连接成功"""
+        mock_gitlab.return_value.user.get.return_value = {"id": 1, "username": "test"}
+        result = client.test_connection()
+        assert result is True
+
+    def test_test_connection_failure(self, client, mock_gitlab):
+        """测试连接失败"""
+        mock_gitlab.return_value.user.get.side_effect = Exception("Connection failed")
+        result = client.test_connection()
+        assert result is False
+
+    def test_get_branches(self, client, mock_gitlab):
+        """测试获取分支列表"""
+        mock_project = Mock()
+        # 创建带有 commit 属性的 mock branch
+        mock_branch1 = Mock()
+        mock_branch1.name = "main"
+        mock_branch1.commit = {"id": "abc123", "message": "init", "author_name": "user"}
+        mock_branch1.protected = True
+        mock_branch1.merged = True
+        mock_branch1.default = True
+
+        mock_branch2 = Mock()
+        mock_branch2.name = "develop"
+        mock_branch2.commit = {"id": "def456", "message": "update", "author_name": "user"}
+        mock_branch2.protected = False
+        mock_branch2.merged = False
+        mock_branch2.default = False
+
+        mock_branch3 = Mock()
+        mock_branch3.name = "feature/test"
+        mock_branch3.commit = {"id": "ghi789", "message": "feature", "author_name": "user"}
+        mock_branch3.protected = False
+        mock_branch3.merged = False
+        mock_branch3.default = False
+
+        mock_project.branches.list.return_value = [mock_branch1, mock_branch2, mock_branch3]
+        mock_gitlab.return_value.projects.get.return_value = mock_project
+
+        branches = client.get_branches(project_id=1)
+
+        assert len(branches) == 3
+        assert branches[0]["name"] == "main"
+        assert branches[1]["name"] == "develop"
+        assert branches[2]["name"] == "feature/test"
+
+    def test_get_commits(self, client, mock_gitlab):
+        """测试获取提交列表"""
+        mock_project = Mock()
+        mock_commits = [
+            Mock(
+                id="abc123",
+                short_id="abc123",
+                title="Test commit",
+                author_name="Test User",
+                author_email="test@example.com",
+                created_at="2024-01-01T00:00:00Z",
+                message="Test commit message"
+            )
+        ]
+        mock_project.commits.list.return_value = mock_commits
+        mock_gitlab.return_value.projects.get.return_value = mock_project
+
+        commits = client.get_commits(
+            project_id=1,
+            since="2024-01-01T00:00:00Z",
+            until="2024-01-02T00:00:00Z",
+            ref_name="main"
+        )
+
+        assert len(commits) == 1
+        assert commits[0]["id"] == "abc123"
+        assert commits[0]["title"] == "Test commit"
+
+    def test_get_commits_with_pagination(self, client, mock_gitlab):
+        """测试获取提交列表（分页）"""
+        mock_project = Mock()
+        mock_commits = [
+            Mock(
+                id=f"commit{i}",
+                short_id=f"commit{i}",
+                title=f"Commit {i}",
+                author_name="Test User",
+                author_email="test@example.com",
+                created_at="2024-01-01T00:00:00Z",
+                message=f"Commit {i}"
+            )
+            for i in range(5)
+        ]
+        mock_project.commits.list.return_value = mock_commits
+        mock_gitlab.return_value.projects.get.return_value = mock_project
+
+        commits = client.get_commits(
+            project_id=1,
+            since="2024-01-01T00:00:00Z",
+            until="2024-01-02T00:00:00Z",
+            ref_name="main",
+            per_page=5
+        )
+
+        assert len(commits) == 5
+
+    def test_get_commit_diff(self, client, mock_gitlab):
+        """测试获取提交差异"""
+        mock_project = Mock()
+        mock_commit = Mock()
+        mock_commit.diff.return_value = [
+            {
+                "diff": "@@ -1,5 +1,5 @@\n-old\n+new\n",
+                "new_path": "test.py",
+                "old_path": "test.py",
+                "new_file": False,
+                "deleted_file": False,
+                "renamed_file": False
+            }
+        ]
+        mock_project.commits.get.return_value = mock_commit
+        mock_gitlab.return_value.projects.get.return_value = mock_project
+
+        diffs = client.get_commit_diff(project_id=1, commit_sha="abc123")
+
+        assert len(diffs) == 1
+        assert diffs[0]["new_path"] == "test.py"
+        assert diffs[0]["diff"].startswith("@@")
+
+    def test_get_file_content(self, client, mock_gitlab):
+        """测试获取文件内容"""
+        mock_project = Mock()
+        mock_file = Mock()
+        mock_file.decode.return_value = "# Test File\nprint('hello')"
+        mock_project.files.get.return_value = mock_file
+        mock_gitlab.return_value.projects.get.return_value = mock_project
+
+        content = client.get_file_content(
+            project_id=1,
+            file_path="README.md",
+            ref="main"
+        )
+
+        assert "Test File" in content
+
+    def test_get_file_content_not_found(self, client, mock_gitlab):
+        """测试获取不存在的文件"""
+        mock_project = Mock()
+        mock_project.files.get.side_effect = Exception("File not found")
+        mock_gitlab.return_value.projects.get.return_value = mock_project
+
+        content = client.get_file_content(
+            project_id=1,
+            file_path="nonexistent.md",
+            ref="main"
+        )
+
+        assert content is None
+
+    def test_get_project_info(self, client, mock_gitlab):
+        """测试获取项目信息"""
+        mock_project = Mock()
+        mock_project.name = "Test Project"
+        mock_project.path_with_namespace = "group/test-project"
+        mock_project.web_url = "https://gitlab.example.com/group/test-project"
+        mock_gitlab.return_value.projects.get.return_value = mock_project
+
+        info = client.get_project_info(project_id=1)
+
+        assert info["name"] == "Test Project"
+        assert info["path"] == "group/test-project"
