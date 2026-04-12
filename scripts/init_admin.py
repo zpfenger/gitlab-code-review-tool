@@ -12,7 +12,7 @@ from app.models import User, Role
 from app.security import security_service
 
 
-def create_admin_user(username: str = None, password: str = None):
+def create_admin_user(username: str = None, password: str = None, force: bool = False):
     """创建系统管理员账号"""
     init_db()
 
@@ -27,8 +27,17 @@ def create_admin_user(username: str = None, password: str = None):
         # 检查是否已有管理员账号
         existing_admin = db.query(User).join(User.roles).filter(Role.name == Role.SYSTEM_ADMIN).first()
         if existing_admin:
-            print(f"系统管理员账号已存在: {existing_admin.username}")
-            return True
+            if force and password:
+                # 强制重置密码
+                existing_admin.password_hash = security_service.hash_password(password)
+                db.commit()
+                print(f"系统管理员密码已重置: {existing_admin.username}")
+                return True
+            else:
+                print(f"系统管理员账号已存在: {existing_admin.username}")
+                if not force:
+                    print("提示: 使用 --force 参数可强制重置密码")
+                return True
 
         # 交互式获取用户名密码
         if not username:
@@ -70,7 +79,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='初始化系统管理员账号')
     parser.add_argument('--username', '-u', help='管理员用户名')
     parser.add_argument('--password', '-p', help='管理员密码（至少6位）')
+    parser.add_argument('--force', '-f', action='store_true', help='强制重置密码（如果账号已存在）')
     args = parser.parse_args()
 
-    success = create_admin_user(args.username, args.password)
+    success = create_admin_user(args.username, args.password, args.force)
     sys.exit(0 if success else 1)
