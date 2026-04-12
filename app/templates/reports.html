@@ -1,0 +1,375 @@
+{% extends "base.html" %}
+
+{% block title %}审查报告 - 代码审查工具{% endblock %}
+
+{% block content %}
+<!-- Page Header -->
+<div class="page-header">
+    <div>
+        <h1 class="page-title">审查报告</h1>
+        <p class="page-subtitle">浏览和下载代码审查报告</p>
+    </div>
+</div>
+
+<!-- Filters -->
+<div class="card mb-4">
+    <div class="card-body">
+        <form method="get" class="filter-grid filter-grid-3" style="margin-bottom: 0;">
+            <div class="form-group" style="margin-bottom: 0;">
+                <label for="project" class="form-label">项目</label>
+                <select class="form-input form-select" id="project" name="project">
+                    <option value="">全部项目</option>
+                    {% for p in projects %}
+                    <option value="{{ p.name }}" {% if p.name == filters.project %}selected{% endif %}>
+                        {{ p.name }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+                <label for="report_type" class="form-label">报告类型</label>
+                <select class="form-input form-select" id="report_type" name="report_type">
+                    <option value="" {% if not filters.report_type %}selected{% endif %}>全部类型</option>
+                    <option value="daily" {% if filters.report_type == 'daily' %}selected{% endif %}>日报</option>
+                    <option value="weekly" {% if filters.report_type == 'weekly' %}selected{% endif %}>周报</option>
+                    <option value="monthly" {% if filters.report_type == 'monthly' %}selected{% endif %}>月报</option>
+                </select>
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+                <label for="date" class="form-label">日期</label>
+                <input type="date" class="form-input" id="date" name="date" value="{{ filters.date }}">
+            </div>
+            <div style="display: flex; gap: var(--space-2);">
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-search"></i> 筛选
+                </button>
+                <a href="/reports" class="btn btn-secondary">
+                    <i class="bi bi-x-circle"></i> 清除
+                </a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Report Layout -->
+<div style="display: grid; grid-template-columns: 320px 1fr; gap: var(--space-6);">
+    <!-- Report Tree -->
+    <div class="card">
+        <div class="card-header">
+            <i class="bi bi-folder2-open"></i> 报告目录
+        </div>
+        <div class="card-body" style="padding: 0; max-height: 600px; overflow-y: auto;">
+            <div id="reportTree">
+                {% for project_name, dates in reports.items() %}
+                <div class="report-project">
+                    <div class="report-project-header" onclick="toggleProject('{{ project_name }}')">
+                        <div style="display: flex; align-items: center; gap: var(--space-2);">
+                            <i class="bi bi-chevron-right" id="icon-{{ project_name | urlencode }}"></i>
+                            <i class="bi bi-folder"></i>
+                            <strong>{{ project_name }}</strong>
+                        </div>
+                        <span class="badge badge-gray">{{ dates|length }}</span>
+                    </div>
+                    <div class="report-dates" id="project-{{ project_name | urlencode }}" style="display: none;">
+                        {% for date, authors in dates.items() %}
+                        <div class="report-date">
+                            <div class="report-date-header" onclick="toggleDate('{{ project_name }}', '{{ date }}')">
+                                <div style="display: flex; align-items: center; gap: var(--space-2);">
+                                    <i class="bi bi-chevron-right" id="date-icon-{{ project_name | urlencode }}-{{ date | urlencode }}"></i>
+                                    <i class="bi bi-calendar3"></i>
+                                    {{ date | replace('_to_', ' 至 ') }}
+                                </div>
+                                <span class="badge badge-gray">{{ authors|length }}</span>
+                            </div>
+                            <div class="report-authors" id="date-{{ project_name | urlencode }}-{{ date | urlencode }}" style="display: none;">
+                                {% for author, file_info in authors.items() %}
+                                <div class="report-author">
+                                    <a href="#" onclick="loadReport('{{ file_info.type }}', '{{ project_name }}', '{{ date }}', '{{ file_info.filename }}'); return false;">
+                                        <i class="bi bi-file-earmark-text"></i>
+                                        {{ author }}
+                                        {% if file_info.type == 'weekly' %}
+                                        <span class="badge badge-primary" style="margin-left: var(--space-1);">周报</span>
+                                        {% elif file_info.type == 'monthly' %}
+                                        <span class="badge badge-info" style="margin-left: var(--space-1);">月报</span>
+                                        {% endif %}
+                                    </a>
+                                    {% if 'system_admin' in current_user_roles or 'project_admin' in current_user_roles %}
+                                    <button class="btn btn-sm" onclick="confirmDeleteReport('{{ project_name }}', '{{ file_info.type }}', '{{ date }}', '{{ author }}', '{{ file_info.filename }}')" title="删除报告">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                    {% endif %}
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% else %}
+                <div style="padding: var(--space-8); text-align: center; color: var(--color-slate-500);">
+                    <i class="bi bi-inbox" style="font-size: 2rem;"></i>
+                    <p style="margin-top: var(--space-2);">暂无报告</p>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Report Content -->
+    <div class="card">
+        <div class="card-header">
+            <span><i class="bi bi-file-text"></i> 报告内容</span>
+            <div id="reportActions" style="display: none; margin-left: auto;">
+                <a href="#" class="btn btn-sm btn-secondary" id="downloadBtn">
+                    <i class="bi bi-download"></i> 下载
+                </a>
+                <button class="btn btn-sm btn-secondary" onclick="copyReport()">
+                    <i class="bi bi-clipboard"></i> 复制
+                </button>
+            </div>
+        </div>
+        <div class="card-body">
+            <div id="reportContent">
+                <div style="text-align: center; padding: var(--space-12); color: var(--color-slate-500);">
+                    <i class="bi bi-file-earmark-text" style="font-size: 3rem;"></i>
+                    <p style="margin-top: var(--space-4);">请从左侧选择一份报告查看</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+.report-project {
+    border-bottom: 1px solid var(--color-slate-100);
+}
+
+.report-project-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--space-3) var(--space-4);
+    cursor: pointer;
+    transition: background var(--transition-fast);
+}
+
+.report-project-header:hover {
+    background: var(--color-slate-50);
+}
+
+.report-date {
+    border-top: 1px solid var(--color-slate-100);
+}
+
+.report-date-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--space-2) var(--space-4) var(--space-2) var(--space-8);
+    cursor: pointer;
+    transition: background var(--transition-fast);
+}
+
+.report-date-header:hover {
+    background: var(--color-slate-50);
+}
+
+.report-authors {
+    background: var(--color-slate-50);
+}
+
+.report-author {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--space-2) var(--space-4) var(--space-2) var(--space-12);
+}
+
+.report-author a {
+    color: var(--color-slate-700);
+    text-decoration: none;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex: 1;
+}
+
+.report-author a:hover {
+    color: var(--color-primary);
+}
+
+.report-author .btn {
+    opacity: 0;
+    transition: opacity var(--transition-fast);
+}
+
+.report-author:hover .btn {
+    opacity: 1;
+}
+
+/* Report Content Styles */
+.report-content {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    line-height: 1.6;
+    color: #24292f;
+}
+
+.report-content h1 { font-size: 1.5rem; margin: 1rem 0 0.75rem; padding-bottom: 0.3rem; border-bottom: 1px solid #d0d7de; }
+.report-content h2 { font-size: 1.25rem; margin: 1rem 0 0.5rem; padding-bottom: 0.2rem; border-bottom: 1px solid #d0d7de; }
+.report-content h3 { font-size: 1.1rem; margin: 0.75rem 0 0.5rem; }
+.report-content h4 { font-size: 1rem; margin: 0.75rem 0 0.25rem; }
+.report-content p { margin: 0 0 0.75rem; }
+.report-content ul, .report-content ol { margin: 0 0 0.75rem; padding-left: 2rem; }
+.report-content li { margin-bottom: 0.25rem; }
+.report-content blockquote {
+    padding: 0.5rem 1rem;
+    margin: 0 0 0.75rem;
+    border-left: 4px solid #d0d7de;
+    background: #f6f8fa;
+    color: #57606a;
+}
+.report-content pre {
+    background: #f6f8fa;
+    padding: 1rem;
+    border-radius: 6px;
+    overflow-x: auto;
+    margin: 0 0 1rem;
+    border: 1px solid #d0d7de;
+}
+.report-content code {
+    background: #eff1f3;
+    padding: 0.2rem 0.4rem;
+    border-radius: 4px;
+    font-size: 0.9em;
+}
+.report-content pre code {
+    background: none;
+    padding: 0;
+    border-radius: 0;
+    font-size: 0.85rem;
+}
+.report-content table {
+    width: 100%;
+    margin-bottom: 1rem;
+    border-collapse: collapse;
+}
+.report-content th, .report-content td {
+    padding: 0.5rem 0.75rem;
+    border: 1px solid #d0d7de;
+}
+.report-content th {
+    background: #f6f8fa;
+    font-weight: 600;
+}
+.report-content tr:nth-child(even) { background: #f6f8fa; }
+.report-content hr {
+    border: none;
+    border-top: 1px solid #d0d7de;
+    margin: 1rem 0;
+}
+.report-content a { color: #0969da; text-decoration: none; }
+.report-content a:hover { text-decoration: underline; }
+.report-content img { max-width: 100%; border-radius: 6px; }
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let currentReportPath = null;
+
+function toggleProject(name) {
+    const el = document.getElementById('project-' + encodeURIComponent(name));
+    const icon = document.getElementById('icon-' + encodeURIComponent(name));
+    if (el) {
+        if (el.style.display === 'none') {
+            el.style.display = 'block';
+            icon.className = 'bi bi-chevron-down';
+        } else {
+            el.style.display = 'none';
+            icon.className = 'bi bi-chevron-right';
+        }
+    }
+}
+
+function toggleDate(project, date) {
+    const el = document.getElementById('date-' + encodeURIComponent(project) + '-' + encodeURIComponent(date));
+    const icon = document.getElementById('date-icon-' + encodeURIComponent(project) + '-' + encodeURIComponent(date));
+    if (el) {
+        if (el.style.display === 'none') {
+            el.style.display = 'block';
+            icon.className = 'bi bi-chevron-down';
+        } else {
+            el.style.display = 'none';
+            icon.className = 'bi bi-chevron-right';
+        }
+    }
+}
+
+async function loadReport(reportType, project, date, filename) {
+    const path = `${project}/${reportType}/${date}/${filename}`;
+
+    try {
+        const response = await fetch(`/api/reports/content?path=${encodeURIComponent(path)}`);
+        if (!response.ok) throw new Error('加载失败');
+
+        const result = await response.json();
+        const content = result.data?.content || '';
+        currentReportPath = path;
+
+        // 渲染 Markdown
+        const html = renderMarkdown(content);
+        document.getElementById('reportContent').innerHTML =
+            `<div class="report-content">${html}</div>`;
+
+        // 更新下载链接
+        document.getElementById('downloadBtn').href = `/api/reports/download?path=${encodeURIComponent(path)}`;
+        document.getElementById('reportActions').style.display = 'flex';
+
+    } catch (e) {
+        document.getElementById('reportContent').innerHTML =
+            `<div class="alert alert-error">加载失败: ${e.message}</div>`;
+    }
+}
+
+function renderMarkdown(md) {
+    if (typeof marked !== 'undefined') {
+        return marked.parse(md, { breaks: true, gfm: true });
+    }
+    return md.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
+}
+
+function copyReport() {
+    const content = document.getElementById('reportContent').innerText;
+    navigator.clipboard.writeText(content).then(() => {
+        showNotification('已复制到剪贴板', 'success');
+    }).catch(e => {
+        showNotification('复制失败: ' + e.message, 'error');
+    });
+}
+
+async function confirmDeleteReport(project, reportType, date, author, filename) {
+    event.stopPropagation();
+    if (!confirm(`确定要删除报告吗？\n\n项目: ${project}\n类型: ${reportType}\n日期: ${date}\n作者: ${author}\n\n此操作不可恢复！`)) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/reports?project=${encodeURIComponent(project)}&report_type=${reportType}&report_date=${date}&author=${encodeURIComponent(author)}`, {
+            method: 'DELETE'
+        });
+
+        const result = await response.json();
+        if (result.success) {
+            showNotification('删除成功！', 'success');
+            location.reload();
+        } else {
+            showNotification('删除失败: ' + (result.message || '未知错误'), 'error');
+        }
+    } catch (e) {
+        showNotification('删除失败: ' + e.message, 'error');
+    }
+}
+</script>
+{% endblock %}

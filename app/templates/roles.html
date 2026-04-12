@@ -1,0 +1,263 @@
+{% extends "base.html" %}
+
+{% block title %}权限管理 - 代码审查工具{% endblock %}
+
+{% block extra_css %}
+<style>
+    .role-card {
+        background: #fff;
+        border-radius: 8px;
+        padding: 20px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        height: 100%;
+        border-left: 4px solid;
+        transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .role-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+    }
+    .role-card.system-admin { border-color: #dc3545; }
+    .role-card.project-admin { border-color: #ffc107; }
+    .role-card.project-member { border-color: #17a2b8; }
+    .role-card-header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 12px;
+    }
+    .role-icon {
+        width: 48px;
+        height: 48px;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 24px;
+    }
+    .system-admin .role-icon { background: #f8d7da; color: #dc3545; }
+    .project-admin .role-icon { background: #fff3cd; color: #ffc107; }
+    .project-member .role-icon { background: #d1ecf1; color: #17a2b8; }
+    .role-name { margin: 0; font-size: 16px; font-weight: 600; }
+    .role-desc { color: #6c757d; font-size: 14px; margin-bottom: 16px; }
+    .role-permissions h6 { font-size: 13px; color: #495057; margin-bottom: 8px; }
+    .role-permissions ul { margin: 0; padding-left: 18px; font-size: 13px; color: #6c757d; }
+    .role-permissions li { margin-bottom: 4px; }
+    .permission-list { max-height: 200px; overflow-y: auto; padding-left: 20px; }
+    .permission-list li { margin-bottom: 6px; color: #495057; }
+    .user-list { max-height: 200px; overflow-y: auto; }
+    .user-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px 12px;
+        background: #f8f9fa;
+        border-radius: 4px;
+        margin-bottom: 6px;
+    }
+    .user-item .user-name { font-weight: 500; color: #333; }
+    .stat-circle {
+        width: 80px;
+        height: 80px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin: 0 auto;
+    }
+    .stat-number { font-size: 28px; font-weight: 700; color: #fff; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1 class="page-title">
+            <i class="bi bi-shield-check me-2"></i>权限管理
+        </h1>
+        <p class="page-subtitle">查看系统内置角色及其权限说明</p>
+    </div>
+</div>
+
+<!-- 角色说明 -->
+<div class="row" id="rolesContainer">
+    <div class="col-md-12">
+        <div class="text-center text-muted py-4">
+            <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+            加载中...
+        </div>
+    </div>
+</div>
+
+<!-- 角色详情模态框 -->
+<div class="modal-overlay" id="roleDetailModalBackdrop"></div>
+<div class="modal" id="roleDetailModal" tabindex="-1">
+    <div class="modal-header">
+        <h5 class="modal-title" id="roleDetailTitle">
+            <i class="bi bi-shield me-2"></i>角色详情
+        </h5>
+        <button type="button" class="btn-close-modal" onclick="closeModal('roleDetailModal')">&times;</button>
+    </div>
+    <div class="modal-body">
+        <div class="role-info mb-3">
+            <p class="role-description" id="roleDescription"></p>
+            <div class="badge bg-primary" id="roleType"></div>
+        </div>
+        <h6><i class="bi bi-list-check me-1"></i>权限列表</h6>
+        <ul class="permission-list" id="permissionList">
+            <!-- 动态加载 -->
+        </ul>
+        <hr>
+        <h6><i class="bi bi-people me-1"></i>拥有此角色的用户</h6>
+        <div class="user-list" id="roleUsers">
+            <!-- 动态加载 -->
+        </div>
+    </div>
+    <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('roleDetailModal')">关闭</button>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    let roleDefinitions = [];
+    let roles = [];
+
+    // 加载角色定义
+    async function loadRoleDefinitions() {
+        try {
+            const resp = await apiRequest('/api/roles/definitions/builtin');
+            if (!resp || !resp.ok) return;
+            roleDefinitions = await resp.json();
+            renderRoles();
+        } catch (e) {
+            showNotification('加载角色定义失败', 'danger');
+        }
+    }
+
+    // 加载角色列表
+    async function loadRoles() {
+        try {
+            const resp = await apiRequest('/api/roles');
+            if (!resp || !resp.ok) return;
+            roles = await resp.json();
+            renderRoles();
+        } catch (e) {
+            console.error('加载角色列表失败:', e);
+        }
+    }
+
+    // 渲染角色卡片
+    function renderRoles() {
+        const container = document.getElementById('rolesContainer');
+
+        if (!roleDefinitions.length) {
+            container.innerHTML = '<div class="col-md-12"><p class="text-center text-muted py-4">暂无角色数据</p></div>';
+            return;
+        }
+
+        container.innerHTML = roleDefinitions.map(role => {
+            const roleInfo = roles.find(r => r.name === role.name);
+            const userCount = roleInfo ? roleInfo.user_count : 0;
+
+            const roleClass = role.name === 'system_admin' ? 'role-card system-admin' :
+                             role.name === 'project_admin' ? 'role-card project-admin' :
+                             'role-card project-member';
+
+            const iconHtml = role.name === 'system_admin' ? '<i class="bi bi-shield-fill"></i>' :
+                            role.name === 'project_admin' ? '<i class="bi bi-folder-check"></i>' :
+                            '<i class="bi bi-eye"></i>';
+
+            const badgeClass = role.name === 'system_admin' ? 'bg-danger text-white' :
+                             role.name === 'project_admin' ? 'bg-warning text-dark' : 'bg-info text-white';
+
+            return `
+                <div class="col-md-4 mb-4">
+                    <div class="${roleClass}">
+                        <div class="role-card-header">
+                            <div class="role-icon">
+                                ${iconHtml}
+                            </div>
+                            <div>
+                                <h5 class="role-name">${role.display_name}</h5>
+                                <span class="badge ${badgeClass}">${userCount} 人</span>
+                            </div>
+                        </div>
+                        <p class="role-desc">${role.description}</p>
+                        <div class="role-permissions">
+                            <h6><i class="bi bi-key me-1"></i>权限</h6>
+                            <ul>
+                                ${role.permissions.map(p => `<li>${p}</li>`).join('')}
+                            </ul>
+                        </div>
+                        <button class="btn btn-sm btn-outline-primary mt-3 w-100" onclick="viewRoleDetail('${role.name}')">
+                            <i class="bi bi-info-circle me-1"></i>查看详情
+                        </button>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    // 查看角色详情
+    async function viewRoleDetail(roleName) {
+        try {
+            // 根据角色名称找到对应的角色 ID
+            const roleInfo = roles.find(r => r.name === roleName);
+            if (!roleInfo) {
+                showNotification('角色信息加载中，请稍后重试', 'warning');
+                return;
+            }
+
+            const resp = await apiRequest(`/api/roles/${roleInfo.id}`);
+            if (!resp || !resp.ok) {
+                showNotification('加载角色详情失败', 'danger');
+                return;
+            }
+            const role = await resp.json();
+
+            const roleDef = roleDefinitions.find(r => r.name === roleName);
+            const displayName = roleDef ? roleDef.display_name : role.name;
+
+            document.getElementById('roleDetailTitle').innerHTML = `<i class="bi bi-shield me-2"></i>${displayName}`;
+            document.getElementById('roleDescription').textContent = roleDef ? roleDef.description : (role.description || '');
+            document.getElementById('roleType').textContent = role.is_system_role ? '系统内置角色' : '自定义角色';
+            document.getElementById('roleType').className = `badge ${role.is_system_role ? 'bg-primary' : 'bg-secondary'}`;
+
+            const permissions = roleDef ? roleDef.permissions : [];
+            document.getElementById('permissionList').innerHTML = permissions.length > 0 ?
+                permissions.map(p => `<li>${p}</li>`).join('') :
+                '<li class="text-muted">暂无详细权限说明</li>';
+
+            if (role.users && role.users.length > 0) {
+                document.getElementById('roleUsers').innerHTML = role.users.map(u => `
+                    <div class="user-item">
+                        <span class="user-name">${escapeHtml(u.username)}</span>
+                        <span class="badge ${u.is_active ? 'bg-success text-white' : 'bg-secondary text-white'}">${u.is_active ? '启用' : '禁用'}</span>
+                    </div>
+                `).join('');
+            } else {
+                document.getElementById('roleUsers').innerHTML = '<p class="text-muted">暂无用户</p>';
+            }
+
+            openModal('roleDetailModal');
+        } catch (e) {
+            showNotification('加载角色详情失败', 'danger');
+        }
+    }
+
+    function escapeHtml(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    // 页面加载
+    document.addEventListener('DOMContentLoaded', async function() {
+        await loadRoleDefinitions();
+        await loadRoles();
+    });
+</script>
+{% endblock %}

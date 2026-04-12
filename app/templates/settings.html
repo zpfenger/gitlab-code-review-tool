@@ -1,0 +1,458 @@
+{% extends "base.html" %}
+
+{% block title %}系统设置 - 代码审查工具{% endblock %}
+
+{% block content %}
+<!-- Page Header -->
+<div class="page-header">
+    <div>
+        <h1 class="page-title">系统设置</h1>
+        <p class="page-subtitle">配置 GitLab 连接、LLM API 和全局参数</p>
+    </div>
+    <button type="submit" form="settingsForm" class="btn btn-primary">
+        <i class="bi bi-check-lg"></i> 保存设置
+    </button>
+</div>
+
+<form id="settingsForm">
+    <!-- GitLab Configuration -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <i class="bi bi-git"></i> GitLab 配置
+        </div>
+        <div class="card-body">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4);">
+                <div class="form-group">
+                    <label for="gitlab_url" class="form-label">GitLab URL *</label>
+                    <input type="url" class="form-input" id="gitlab_url" name="gitlab_url"
+                           value="{{ settings.global_gitlab_url }}" required
+                           placeholder="https://gitlab.example.com">
+                </div>
+                <div class="form-group">
+                    <label for="global_gitlab_token" class="form-label">全局 Access Token</label>
+                    <div style="display: flex; gap: var(--space-2);">
+                        <input type="password" class="form-input" id="global_gitlab_token"
+                               name="global_gitlab_token" placeholder="留空保持原值">
+                        <button class="btn btn-secondary" type="button" onclick="testGitLab()">
+                            <i class="bi bi-plug"></i> 测试
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- LLM Configuration -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <i class="bi bi-robot"></i> LLM API 配置
+        </div>
+        <div class="card-body">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4);">
+                <div class="form-group">
+                    <label for="llm_api_url" class="form-label">API URL *</label>
+                    <input type="url" class="form-input" id="llm_api_url" name="llm_api_url"
+                           value="{{ settings.llm_api_url }}" required
+                           placeholder="https://api.openai.com/v1/chat/completions">
+                </div>
+                <div class="form-group">
+                    <label for="llm_api_key" class="form-label">API Key</label>
+                    <div style="display: flex; gap: var(--space-2);">
+                        <input type="password" class="form-input" id="llm_api_key"
+                               name="llm_api_key" placeholder="留空保持原值">
+                        <button class="btn btn-secondary" type="button" onclick="testLLM()">
+                            <i class="bi bi-plug"></i> 测试
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: var(--space-4);">
+                <div class="form-group">
+                    <label for="llm_model" class="form-label">模型名称</label>
+                    <input type="text" class="form-input" id="llm_model" name="llm_model"
+                           value="{{ settings.llm_model }}" placeholder="gpt-4">
+                </div>
+                <div class="form-group">
+                    <label for="llm_max_tokens" class="form-label">最大 Token</label>
+                    <input type="number" class="form-input" id="llm_max_tokens" name="llm_max_tokens"
+                           value="{{ settings.llm_max_tokens or 4096 }}">
+                </div>
+                <div class="form-group">
+                    <label for="llm_temperature" class="form-label">Temperature</label>
+                    <input type="number" class="form-input" id="llm_temperature" name="llm_temperature"
+                           value="{{ settings.llm_temperature or 0.7 }}" step="0.1" min="0" max="2">
+                </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: var(--space-4);">
+                <div class="form-group">
+                    <label for="llm_timeout" class="form-label">超时时间（秒）</label>
+                    <input type="number" class="form-input" id="llm_timeout" name="llm_timeout"
+                           value="{{ settings.llm_timeout or 120 }}" min="10" max="600">
+                    <small class="text-muted">单次 LLM 请求超时上限</small>
+                </div>
+                <div class="form-group">
+                    <label for="llm_max_retries" class="form-label">最大重试次数</label>
+                    <input type="number" class="form-input" id="llm_max_retries" name="llm_max_retries"
+                           value="{{ settings.llm_max_retries or 3 }}" min="0" max="10">
+                </div>
+                <div class="form-group">
+                    <label for="llm_retry_delay" class="form-label">重试间隔（秒）</label>
+                    <input type="number" class="form-input" id="llm_retry_delay" name="llm_retry_delay"
+                           value="{{ settings.llm_retry_delay or 5 }}" min="1" max="60">
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="review_prompt_template" class="form-label">日报审查提示词</label>
+                <textarea class="form-input" id="review_prompt_template"
+                          name="review_prompt_template" rows="6" style="font-family: var(--font-mono); height: auto; min-height: 120px; max-height: 400px; resize: vertical;">{{ settings.review_prompt_template }}</textarea>
+                <small class="text-muted">留空使用默认提示词。需包含 <code>{diff}</code> 占位符</small>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 0;">
+                <label for="weekly_review_prompt" class="form-label">周报汇总提示词模板</label>
+                <textarea class="form-input" id="weekly_review_prompt"
+                          name="weekly_review_prompt" rows="6" style="font-family: var(--font-mono); height: auto; min-height: 120px; max-height: 400px; resize: vertical;"
+                          placeholder="留空使用默认周报汇总提示词">{{ settings.weekly_review_prompt or '' }}</textarea>
+                <small class="text-muted">用于指导 LLM 汇总一周内的日报内容。需包含 <code>{diff}</code> 占位符</small>
+            </div>
+        </div>
+    </div>
+
+    <!-- SVN Configuration -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <i class="bi bi-cloud-upload"></i> SVN 全局配置（可选）
+        </div>
+        <div class="card-body">
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: var(--space-4);">
+                <div class="form-group">
+                    <label for="global_svn_url" class="form-label">SVN URL</label>
+                    <input type="text" class="form-input" id="global_svn_url" name="global_svn_url"
+                           value="{{ settings.global_svn_url or '' }}"
+                           placeholder="https://svn.example.com/repo">
+                </div>
+                <div class="form-group">
+                    <label for="global_svn_username" class="form-label">用户名</label>
+                    <input type="text" class="form-input" id="global_svn_username"
+                           name="global_svn_username" value="{{ settings.global_svn_username }}">
+                </div>
+                <div class="form-group">
+                    <label for="global_svn_password" class="form-label">密码</label>
+                    <input type="password" class="form-input" id="global_svn_password"
+                           name="global_svn_password" placeholder="留空保持原值">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Webhook Configuration -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <span><i class="bi bi-lightning"></i> Webhook 实时审查</span>
+            <div style="display: flex; align-items: center; gap: var(--space-2);">
+                <input type="checkbox" id="webhook_enabled"
+                       name="webhook_enabled" {% if settings.webhook_enabled %}checked{% endif %}
+                       style="width: 18px; height: 18px; accent-color: var(--color-primary);">
+                <label for="webhook_enabled" style="margin: 0; font-size: var(--text-sm);">启用</label>
+            </div>
+        </div>
+        <div class="card-body">
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: var(--space-4);">
+                <div class="form-group">
+                    <div style="display: flex; align-items: center; gap: var(--space-3); padding-top: var(--space-5);">
+                        <input type="checkbox" id="push_review_enabled"
+                               name="push_review_enabled" {% if settings.push_review_enabled %}checked{% endif %}
+                               style="width: 18px; height: 18px; accent-color: var(--color-primary);">
+                        <label for="push_review_enabled" style="margin: 0;">启用 Push 事件审查</label>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="review_max_tokens" class="form-label">单次审查最大 Token</label>
+                    <input type="number" class="form-input" id="review_max_tokens" name="review_max_tokens"
+                           value="{{ settings.review_max_tokens or 10000 }}" min="1000" max="100000">
+                </div>
+                <div class="form-group">
+                    <label for="review_style" class="form-label">审查风格</label>
+                    <select class="form-input form-select" id="review_style" name="review_style">
+                        <option value="professional" {% if settings.review_style == 'professional' or not settings.review_style %}selected{% endif %}>专业严谨</option>
+                        <option value="gentle" {% if settings.review_style == 'gentle' %}selected{% endif %}>温和建议</option>
+                        <option value="humorous" {% if settings.review_style == 'humorous' %}selected{% endif %}>幽默风趣</option>
+                        <option value="sarcastic" {% if settings.review_style == 'sarcastic' %}selected{% endif %}>犀利讽刺</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="supported_extensions" class="form-label">支持的文件扩展名</label>
+                <input type="text" class="form-input" id="supported_extensions" name="supported_extensions"
+                       value="{{ settings.supported_extensions or '.java,.py,.js,.ts,.go,.c,.cpp,.cs,.php,.rb' }}">
+                <small class="text-muted">逗号分隔，如: .java,.py,.js,.ts,.go</small>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 0;">
+                <label for="webhook_review_prompt" class="form-label">Webhook 审查提示词模板</label>
+                <textarea class="form-input" id="webhook_review_prompt"
+                          name="webhook_review_prompt" rows="5" style="font-family: var(--font-mono); height: auto; min-height: 120px; max-height: 400px; resize: vertical;"
+                          placeholder="留空使用内置默认提示词">{{ settings.webhook_review_prompt or '' }}</textarea>
+            </div>
+
+            <div class="alert alert-info" style="margin-top: var(--space-4); margin-bottom: 0;">
+                <i class="bi bi-info-circle"></i>
+                Webhook 地址：<code>{{ request.url.scheme }}://{{ request.url.host }}/review/webhook</code>
+                — 在 GitLab 项目 → Settings → Webhooks 中添加此地址，勾选 Push events 和 Merge request events。
+            </div>
+        </div>
+    </div>
+
+    <!-- Scheduler Configuration -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <span><i class="bi bi-clock"></i> 调度配置</span>
+            <div style="display: flex; align-items: center; gap: var(--space-2);">
+                <input type="checkbox" id="scheduler_enabled"
+                       name="scheduler_enabled" {% if settings.scheduler_enabled %}checked{% endif %}
+                       style="width: 18px; height: 18px; accent-color: var(--color-primary);">
+                <label for="scheduler_enabled" style="margin: 0; font-size: var(--text-sm);">启用调度总开关</label>
+            </div>
+        </div>
+        <div class="card-body">
+            <!-- Daily Schedule -->
+            <div style="border: 1px solid var(--color-slate-200); border-radius: var(--radius-md); padding: var(--space-4); margin-bottom: var(--space-4);">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-4);">
+                    <h6 style="margin: 0;"><i class="bi bi-calendar-day"></i> 每日代码审查</h6>
+                    <div style="display: flex; align-items: center; gap: var(--space-2);">
+                        <input type="checkbox" id="daily_enabled"
+                               name="daily_enabled" {% if settings.daily_enabled %}checked{% endif %}
+                               style="width: 18px; height: 18px; accent-color: var(--color-primary);">
+                        <label for="daily_enabled" style="margin: 0; font-size: var(--text-sm);">启用</label>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">执行时间</label>
+                    <div id="dailyScheduleTimesContainer" style="margin-bottom: var(--space-3);"></div>
+                    <button type="button" class="btn btn-sm btn-secondary" onclick="addDailyScheduleTime()">
+                        <i class="bi bi-plus-lg"></i> 添加时间
+                    </button>
+                    <small class="text-muted d-block mt-1">可添加多个时间点，每天自动审查前 N 天的代码</small>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr; gap: var(--space-4); max-width: 300px;">
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label for="daily_review_days" class="form-label">审查天数（往前推）</label>
+                        <input type="number" class="form-input" id="daily_review_days"
+                               name="daily_review_days" min="1" max="30"
+                               value="{{ settings.daily_review_days or 1 }}">
+                        <small class="text-muted">1 = 审查昨天，2 = 审查前两天</small>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Weekly Schedule -->
+            <div style="border: 1px solid var(--color-slate-200); border-radius: var(--radius-md); padding: var(--space-4);">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-4);">
+                    <h6 style="margin: 0;"><i class="bi bi-calendar-week"></i> 每周代码审查</h6>
+                    <div style="display: flex; align-items: center; gap: var(--space-2);">
+                        <input type="checkbox" id="weekly_enabled"
+                               name="weekly_enabled" {% if settings.weekly_enabled %}checked{% endif %}
+                               style="width: 18px; height: 18px; accent-color: var(--color-primary);">
+                        <label for="weekly_enabled" style="margin: 0; font-size: var(--text-sm);">启用</label>
+                    </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: var(--space-4);">
+                    <div class="form-group">
+                        <label for="weekly_schedule_time" class="form-label">执行时间</label>
+                        <input type="time" class="form-input" id="weekly_schedule_time"
+                               name="weekly_schedule_time"
+                               value="{{ settings.weekly_schedule_time or '09:00' }}">
+                    </div>
+                    <div class="form-group">
+                        <label for="weekly_weekday" class="form-label">执行日</label>
+                        <select class="form-input form-select" id="weekly_weekday" name="weekly_weekday">
+                            <option value="0" {% if settings.weekly_weekday == 0 or settings.weekly_weekday is none %}selected{% endif %}>周一</option>
+                            <option value="1" {% if settings.weekly_weekday == 1 %}selected{% endif %}>周二</option>
+                            <option value="2" {% if settings.weekly_weekday == 2 %}selected{% endif %}>周三</option>
+                            <option value="3" {% if settings.weekly_weekday == 3 %}selected{% endif %}>周四</option>
+                            <option value="4" {% if settings.weekly_weekday == 4 %}selected{% endif %}>周五</option>
+                            <option value="5" {% if settings.weekly_weekday == 5 %}selected{% endif %}>周六</option>
+                            <option value="6" {% if settings.weekly_weekday == 6 %}selected{% endif %}>周日</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label for="weekly_review_days" class="form-label">审查天数（往前推）</label>
+                        <input type="number" class="form-input" id="weekly_review_days"
+                               name="weekly_review_days" min="1" max="90"
+                               value="{{ settings.weekly_review_days or 7 }}">
+                        <small class="text-muted">7 = 审查前一周</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</form>
+
+<!-- Test Result Modal -->
+<div class="modal-overlay" id="testResultModalBackdrop"></div>
+<div class="modal" id="testResultModal" tabindex="-1">
+    <div class="modal-header">
+        <h5 class="modal-title">测试结果</h5>
+    </div>
+    <div class="modal-body" id="testResultBody"></div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Initialize daily schedule times
+const initialDailyTimes = {{ settings.daily_schedule_times | default('["09:00"]') | safe }};
+const dailyScheduleTimes = typeof initialDailyTimes === 'string'
+    ? JSON.parse(initialDailyTimes)
+    : (Array.isArray(initialDailyTimes) ? initialDailyTimes : ['09:00']);
+
+function renderDailyScheduleTimes() {
+    const container = document.getElementById('dailyScheduleTimesContainer');
+    container.innerHTML = '';
+    dailyScheduleTimes.forEach((time, idx) => {
+        const row = document.createElement('div');
+        row.className = 'daily-time-row';
+        row.style.cssText = 'display: flex; gap: var(--space-2); margin-bottom: var(--space-2);';
+        row.innerHTML = `
+            <input type="time" class="form-input" value="${time}" data-daily-idx="${idx}" style="max-width: 150px;">
+            <button type="button" class="btn btn-secondary" onclick="removeDailyScheduleTime(${idx})">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        `;
+        container.appendChild(row);
+    });
+}
+
+function addDailyScheduleTime() {
+    dailyScheduleTimes.push('09:00');
+    renderDailyScheduleTimes();
+}
+
+function removeDailyScheduleTime(idx) {
+    if (dailyScheduleTimes.length <= 1) {
+        showNotification('至少保留一个每日调度时间', 'warning');
+        return;
+    }
+    dailyScheduleTimes.splice(idx, 1);
+    renderDailyScheduleTimes();
+}
+
+// Render on page load
+renderDailyScheduleTimes();
+
+document.getElementById('settingsForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const formData = new FormData(this);
+
+    // Collect all daily schedule times
+    const timeInputs = document.querySelectorAll('[data-daily-idx]');
+    const times = Array.from(timeInputs).map(input => input.value).filter(t => t);
+    if (times.length === 0) {
+        showNotification('至少需要一个每日调度时间', 'warning');
+        return;
+    }
+
+    const data = {
+        global_gitlab_url: formData.get('gitlab_url'),
+        global_gitlab_token: formData.get('global_gitlab_token') || null,
+        llm_api_url: formData.get('llm_api_url'),
+        llm_api_key: formData.get('llm_api_key') || null,
+        llm_model: formData.get('llm_model'),
+        llm_max_tokens: parseInt(formData.get('llm_max_tokens')) || 4096,
+        llm_temperature: parseFloat(formData.get('llm_temperature')) || 0.7,
+        llm_timeout: parseInt(formData.get('llm_timeout')) || 120,
+        llm_max_retries: parseInt(formData.get('llm_max_retries')) || 3,
+        llm_retry_delay: parseInt(formData.get('llm_retry_delay')) || 5,
+        review_prompt_template: formData.get('review_prompt_template'),
+        global_svn_url: formData.get('global_svn_url') || null,
+        global_svn_username: formData.get('global_svn_username') || null,
+        global_svn_password: formData.get('global_svn_password') || null,
+        webhook_enabled: formData.get('webhook_enabled') === 'on',
+        push_review_enabled: formData.get('push_review_enabled') === 'on',
+        supported_extensions: formData.get('supported_extensions') || '',
+        review_max_tokens: parseInt(formData.get('review_max_tokens')) || 10000,
+        review_style: formData.get('review_style') || 'professional',
+        webhook_review_prompt: formData.get('webhook_review_prompt') || null,
+        dingtalk_enabled: formData.get('dingtalk_enabled') === 'on',
+        dingtalk_webhook_url: formData.get('dingtalk_webhook_url') || null,
+        wecom_enabled: formData.get('wecom_enabled') === 'on',
+        wecom_webhook_url: formData.get('wecom_webhook_url') || null,
+        feishu_enabled: formData.get('feishu_enabled') === 'on',
+        feishu_webhook_url: formData.get('feishu_webhook_url') || null,
+        daily_schedule_times: JSON.stringify(times),
+        daily_review_days: parseInt(formData.get('daily_review_days')) || 1,
+        daily_enabled: formData.get('daily_enabled') === 'on',
+        weekly_schedule_time: formData.get('weekly_schedule_time') || '09:00',
+        weekly_weekday: parseInt(formData.get('weekly_weekday')) || 0,
+        weekly_review_days: parseInt(formData.get('weekly_review_days')) || 7,
+        weekly_enabled: formData.get('weekly_enabled') === 'on',
+        weekly_review_prompt: formData.get('weekly_review_prompt') || null,
+        scheduler_enabled: formData.get('scheduler_enabled') === 'on'
+    };
+
+    try {
+        const response = await fetch('/api/settings', {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data)
+        });
+        const result = await response.json();
+        if (result.success || response.ok) {
+            showNotification('设置已保存', 'success');
+        } else {
+            showNotification('保存失败: ' + (result.message || JSON.stringify(result)), 'error');
+        }
+    } catch (e) {
+        showNotification('请求失败: ' + e.message, 'error');
+    }
+});
+
+async function testGitLab() {
+    const token = document.getElementById('global_gitlab_token').value;
+    const url = document.getElementById('gitlab_url').value;
+
+    try {
+        const response = await fetch('/api/settings/test-gitlab', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ gitlab_url: url, token })
+        });
+        const result = await response.json();
+        showTestResult(result.success ? 'success' : 'error', result.message);
+    } catch (e) {
+        showTestResult('error', '连接失败: ' + e.message);
+    }
+}
+
+async function testLLM() {
+    const apiKey = document.getElementById('llm_api_key').value;
+    const apiUrl = document.getElementById('llm_api_url').value;
+
+    try {
+        const response = await fetch('/api/settings/test-llm', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ api_url: apiUrl, api_key: apiKey })
+        });
+        const result = await response.json();
+        showTestResult(result.success ? 'success' : 'error', result.message);
+    } catch (e) {
+        showTestResult('error', '连接失败: ' + e.message);
+    }
+}
+
+function showTestResult(type, message) {
+    const alertClass = type === 'success' ? 'alert-success' : 'alert-error';
+    document.getElementById('testResultBody').innerHTML =
+        `<div class="alert ${alertClass}" style="margin-bottom: 0;">${message}</div>`;
+    openModal('testResultModal');
+}
+</script>
+{% endblock %}

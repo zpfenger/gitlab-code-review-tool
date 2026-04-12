@@ -1,0 +1,228 @@
+{% extends "base.html" %}
+
+{% block title %}仪表板 - 代码审查工具{% endblock %}
+
+{% block content %}
+<!-- Page Header -->
+<div class="page-header">
+    <div>
+        <h1 class="page-title">仪表板</h1>
+        <p class="page-subtitle">GitLab 代码审查工具 - 系统概览</p>
+    </div>
+    <div class="btn-group">
+        <button class="btn btn-secondary" onclick="location.reload()">
+            <i class="bi bi-arrow-clockwise"></i> 刷新
+        </button>
+        {% if 'system_admin' in current_user_roles or 'project_admin' in current_user_roles %}
+        <a href="/projects?action=add" class="btn btn-primary">
+            <i class="bi bi-plus-lg"></i> 新建项目
+        </a>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Stats Grid -->
+<div class="stats-grid">
+    <div class="stat-card primary">
+        <div class="stat-icon">
+            <i class="bi bi-folder fs-5"></i>
+        </div>
+        <div class="stat-value">{{ stats.total_projects }}</div>
+        <div class="stat-label">项目总数</div>
+        <a href="/projects" class="stat-link">
+            查看全部 <i class="bi bi-arrow-right"></i>
+        </a>
+    </div>
+
+    <div class="stat-card success">
+        <div class="stat-icon">
+            <i class="bi bi-file-earmark-text fs-5"></i>
+        </div>
+        <div class="stat-value">{{ stats.today_reports }}</div>
+        <div class="stat-label">今日报告</div>
+        <a href="/reports" class="stat-link">
+            查看全部 <i class="bi bi-arrow-right"></i>
+        </a>
+    </div>
+
+    <div class="stat-card warning">
+        <div class="stat-icon">
+            <i class="bi bi-activity fs-5"></i>
+        </div>
+        <div class="stat-value">{{ stats.active_projects }}</div>
+        <div class="stat-label">活跃项目</div>
+    </div>
+
+    <div class="stat-card dark">
+        <div class="stat-icon">
+            <i class="bi bi-lightning fs-5"></i>
+        </div>
+        <div class="stat-value">{{ stats.today_webhook_reviews }}</div>
+        <div class="stat-label">Webhook 审查</div>
+        <a href="/webhook-reviews" class="stat-link">
+            查看全部 <i class="bi bi-arrow-right"></i>
+        </a>
+    </div>
+</div>
+
+<!-- Main Content Grid -->
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-6);">
+    <!-- Quick Actions -->
+    <div class="card">
+        <div class="card-header">
+            <i class="bi bi-lightning"></i> 快速操作
+        </div>
+        <div class="card-body">
+            <div style="display: flex; flex-direction: column; gap: var(--space-3);">
+                {% if 'system_admin' in current_user_roles or 'project_admin' in current_user_roles %}
+                <button class="btn btn-primary" onclick="runAllTasks()">
+                    <i class="bi bi-play-fill"></i> 立即执行所有任务
+                </button>
+                <a href="/projects?action=add" class="btn btn-secondary">
+                    <i class="bi bi-plus-circle"></i> 添加新项目
+                </a>
+                {% endif %}
+                {% if 'system_admin' in current_user_roles %}
+                <a href="/settings" class="btn btn-secondary">
+                    <i class="bi bi-gear"></i> 系统设置
+                </a>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Recent Tasks -->
+    <div class="card">
+        <div class="card-header">
+            <i class="bi bi-clock-history"></i> 最近任务
+        </div>
+        <div class="card-body" style="padding: 0;">
+            {% if recent_tasks %}
+            <div class="table-container" style="border: none; border-radius: 0;">
+                <table class="table" style="margin-bottom: 0;">
+                    <thead>
+                        <tr>
+                            <th>项目</th>
+                            <th>状态</th>
+                            <th>时间</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for task in recent_tasks %}
+                        <tr>
+                            <td>{{ task.project_name }}</td>
+                            <td>
+                                {% if task.status == 'success' %}
+                                <span class="badge badge-success">成功</span>
+                                {% elif task.status == 'running' %}
+                                <span class="badge badge-primary">运行中</span>
+                                {% elif task.status == 'failed' %}
+                                <span class="badge badge-error">失败</span>
+                                {% else %}
+                                <span class="badge badge-gray">{{ task.status }}</span>
+                                {% endif %}
+                            </td>
+                            <td><small>{{ task.start_time }}</small></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="empty-state">
+                <i class="bi bi-inbox"></i>
+                <p>暂无任务记录</p>
+            </div>
+            {% endif %}
+            <div class="card-footer" style="text-align: right; border-top: none; padding-top: var(--space-3);">
+                <a href="/logs" class="btn btn-sm btn-secondary">查看全部</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Scheduler Status -->
+<div class="section">
+    <h2 class="section-title">
+        <i class="bi bi-calendar-check"></i>
+        定时任务状态
+    </h2>
+
+    <div class="card">
+        <div class="card-body" style="padding: 0;">
+            {% if scheduler_jobs %}
+            <div class="table-container" style="border: none; border-radius: 0;">
+                <table class="table" style="margin-bottom: 0;">
+                    <thead>
+                        <tr>
+                            <th>任务名称</th>
+                            <th>触发器</th>
+                            <th>下次执行时间</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for job in scheduler_jobs %}
+                        <tr>
+                            <td>{{ job.name }}</td>
+                            <td><code style="font-size: var(--text-xs);">{{ job.trigger }}</code></td>
+                            <td><small>{{ job.next_run_time or '未启动' }}</small></td>
+                            <td>
+                                {% if 'system_admin' in current_user_roles or 'project_admin' in current_user_roles %}
+                                <button class="btn btn-sm btn-secondary"
+                                        onclick="runJobNow('{{ job.id }}')">
+                                    <i class="bi bi-play-fill"></i> 立即执行
+                                </button>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="empty-state">
+                <i class="bi bi-calendar-x"></i>
+                <p>调度器未启动或无定时任务</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+async function runAllTasks() {
+    if (!confirm('确定要立即执行所有项目的审查任务吗？')) return;
+
+    try {
+        const response = await fetch('/api/tasks/run-all', { method: 'POST' });
+        const result = await response.json();
+        if (result.success) {
+            showNotification('任务已触发', 'success');
+            setTimeout(() => { location.reload(); }, 1000);
+        } else {
+            showNotification('操作失败: ' + (result.message || '未知错误'), 'error');
+        }
+    } catch (e) {
+        showNotification('请求失败: ' + e.message, 'error');
+    }
+}
+
+async function runJobNow(jobId) {
+    try {
+        const response = await fetch(`/api/tasks/run-now/${jobId}`, { method: 'POST' });
+        const result = await response.json();
+        if (result.success) {
+            showNotification('任务已触发', 'success');
+            setTimeout(() => { location.reload(); }, 1000);
+        } else {
+            showNotification('操作失败', 'error');
+        }
+    } catch (e) {
+        showNotification('请求失败: ' + e.message, 'error');
+    }
+}
+</script>
+{% endblock %}

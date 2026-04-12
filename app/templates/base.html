@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}代码审查工具{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+    <link rel="icon" href="/static/favicon.ico" type="image/x-icon">
+    <link href="/static/css/style.css" rel="stylesheet">
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    {% if current_user %}
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-logo">
+                <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M22.65 14.39L12 22.13 1.35 14.39a.84.84 0 0 1-.3-.94l1.22-3.78 2.44-7.51A.42.42 0 0 1 4.82 2a.43.43 0 0 1 .58 0 .42.42 0 0 1 .11.18l2.44 7.49h8.1l2.44-7.51A.42.42 0 0 1 18.6 2a.43.43 0 0 1 .58 0 .42.42 0 0 1 .11.18l2.44 7.51L23 13.45a.84.84 0 0 1-.35.94z"/>
+                </svg>
+                <span>代码审查</span>
+            </div>
+
+            <nav class="sidebar-nav">
+                <div class="nav-section">
+                    <div class="nav-section-title">概览</div>
+                    <a class="nav-item {% if request.url.path == '/' %}active{% endif %}" href="/">
+                        <i class="bi bi-speedometer2"></i>
+                        仪表板
+                    </a>
+                    <a class="nav-item {% if '/projects' in request.url.path %}active{% endif %}" href="/projects">
+                        <i class="bi bi-folder"></i>
+                        项目管理
+                        <span class="nav-badge" id="projectsCountBadge" style="display: none;"></span>
+                    </a>
+                    <a class="nav-item {% if '/reports' in request.url.path %}active{% endif %}" href="/reports">
+                        <i class="bi bi-file-earmark-text"></i>
+                        审查报告
+                    </a>
+                </div>
+
+                <div class="nav-section">
+                    <div class="nav-section-title">任务</div>
+                    <a class="nav-item {% if '/logs' in request.url.path %}active{% endif %}" href="/logs">
+                        <i class="bi bi-list-check"></i>
+                        任务日志
+                    </a>
+                    <a class="nav-item {% if '/webhook-reviews' in request.url.path %}active{% endif %}" href="/webhook-reviews">
+                        <i class="bi bi-lightning"></i>
+                        Webhook 审查
+                    </a>
+                </div>
+
+                <div class="nav-section" id="settingsNavSection" style="display: none;">
+                    <div class="nav-section-title">配置</div>
+                    <a class="nav-item {% if '/settings' in request.url.path %}active{% endif %}" href="/settings">
+                        <i class="bi bi-gear"></i>
+                        系统设置
+                    </a>
+                </div>
+
+                <div class="nav-section" id="adminNavSection" style="display: none;">
+                    <div class="nav-section-title">系统管理</div>
+                    <a class="nav-item {% if '/users' in request.url.path %}active{% endif %}" href="/users">
+                        <i class="bi bi-people"></i>
+                        账号管理
+                    </a>
+                    <a class="nav-item {% if '/roles' in request.url.path %}active{% endif %}" href="/roles">
+                        <i class="bi bi-shield-check"></i>
+                        权限管理
+                    </a>
+                </div>
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="user-info">
+                    <i class="bi bi-person-circle"></i>
+                    <div class="flex-grow-1">
+                        <div class="user-name" style="cursor:pointer" onclick="openProfileModal()" title="点击修改个人信息">{{ display_name }}</div>
+                        <div class="user-role" id="userRoleDisplay">--</div>
+                    </div>
+                    <a href="/api/auth/logout" class="nav-item p-1" title="退出登录">
+                        <i class="bi bi-box-arrow-right"></i>
+                    </a>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            {% if flash_messages %}
+            <div class="flash-messages">
+                {% for category, message in flash_messages %}
+                <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                    {{ message }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+
+    <!-- 个人信息模态框 -->
+    <div class="modal-overlay" id="profileModalBackdrop"></div>
+    <div class="modal" id="profileModal" tabindex="-1">
+        <div class="modal-header">
+            <h5 class="modal-title" id="profileModalLabel">
+                <i class="bi bi-person-badge me-2"></i>个人信息
+            </h5>
+            <button type="button" class="btn-close-modal" onclick="closeModal('profileModal')">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label class="form-label">用户名</label>
+                <input type="text" class="form-input" id="profileUsername" disabled style="background:#f0f0f0;cursor:not-allowed">
+                <div class="form-text text-muted">用户名不可修改</div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">昵称</label>
+                <input type="text" class="form-input" id="profileNickname" placeholder="请输入昵称" maxlength="100">
+            </div>
+            <div class="form-group">
+                <label class="form-label">邮箱</label>
+                <input type="email" class="form-input" id="profileEmail" placeholder="请输入邮箱地址" maxlength="100">
+            </div>
+        </div>
+        <div class="modal-footer justify-content-between">
+            <button type="button" class="btn btn-outline-secondary" onclick="closeModal('profileModal');openModal('passwordModal');">
+                <i class="bi bi-key me-1"></i>修改密码
+            </button>
+            <div>
+                <button type="button" class="btn btn-secondary" onclick="closeModal('profileModal')">取消</button>
+                <button type="button" class="btn btn-primary" id="saveProfileBtn" onclick="saveProfile()">
+                    <i class="bi bi-check-lg me-1"></i>保存
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 修改密码模态框 -->
+    <div class="modal-overlay" id="passwordModalBackdrop"></div>
+    <div class="modal" id="passwordModal" tabindex="-1">
+        <div class="modal-header">
+            <h5 class="modal-title" id="passwordModalLabel">
+                <i class="bi bi-key me-2"></i>修改密码
+            </h5>
+            <button type="button" class="btn-close-modal" onclick="closeModal('passwordModal')">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label class="form-label">原密码</label>
+                <input type="password" class="form-input" id="oldPassword" placeholder="请输入原密码" required>
+            </div>
+            <div class="form-group">
+                <label class="form-label">新密码</label>
+                <input type="password" class="form-input" id="newPassword" placeholder="请输入新密码（至少6位）" required>
+            </div>
+            <div class="form-group">
+                <label class="form-label">确认新密码</label>
+                <input type="password" class="form-input" id="confirmPassword" placeholder="请再次输入新密码" required>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="closeModal('passwordModal')">取消</button>
+            <button type="button" class="btn btn-primary" id="changePasswordBtn" onclick="changePassword()">
+                <i class="bi bi-check-lg me-1"></i>确认修改
+            </button>
+        </div>
+    </div>
+    {% else %}
+    {% block login_content %}{% endblock %}
+    {% endif %}
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="/static/js/app.js"></script>
+
+    {% if current_user %}
+    <script>
+    // 页面加载时获取项目数量并显示徽章
+    async function updateProjectsBadge() {
+        const badge = document.getElementById('projectsCountBadge');
+        if (!badge) return;
+        try {
+            const resp = await apiRequest('/api/projects');
+            if (resp && resp.ok) {
+                const data = await resp.json();
+                const count = data.data?.length || 0;
+                if (count > 0) {
+                    badge.textContent = count;
+                    badge.style.display = '';
+                } else {
+                    badge.style.display = 'none';
+                }
+            }
+        } catch (e) {
+            badge.style.display = 'none';
+        }
+    }
+    
+    // 右侧抽屉式模态框控制
+    function openModal(modalId) {
+        const modal = document.getElementById(modalId);
+        const backdrop = document.getElementById(modalId + 'Backdrop');
+        if (modal) {
+            modal.classList.add('active');
+            if (backdrop) backdrop.classList.add('active');
+            // 加载个人信息
+            if (modalId === 'profileModal') {
+                loadProfile();
+            }
+        }
+    }
+
+    function closeModal(modalId) {
+        const modal = document.getElementById(modalId);
+        const backdrop = document.getElementById(modalId + 'Backdrop');
+        if (modal) {
+            modal.classList.remove('active');
+            if (backdrop) backdrop.classList.remove('active');
+            // 清空密码表单
+            if (modalId === 'passwordModal') {
+                clearPasswordForm();
+            }
+        }
+    }
+
+    // 点击遮罩层关闭
+    document.addEventListener('click', function(e) {
+        if (e.target.classList.contains('modal-overlay') && e.target.classList.contains('active')) {
+            const modalId = e.target.id.replace('Backdrop', '');
+            closeModal(modalId);
+        }
+    });
+
+    // ESC 键关闭
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+            const activeModals = document.querySelectorAll('.modal.active');
+            if (activeModals.length > 0) {
+                closeModal(activeModals[activeModals.length - 1].id);
+            }
+        }
+    });
+
+    async function openProfileModal() {
+        await loadProfile();
+        openModal('profileModal');
+    }
+
+    async function loadProfile() {
+        try {
+            const resp = await apiRequest('/api/auth/profile');
+            if (!resp) return;
+            const data = await resp.json();
+            document.getElementById('profileUsername').value = data.username || '';
+            document.getElementById('profileNickname').value = data.nickname || '';
+            document.getElementById('profileEmail').value = data.email || '';
+        } catch (e) {
+            showNotification('加载个人信息失败', 'danger');
+        }
+    }
+
+    async function saveProfile() {
+        const nickname = document.getElementById('profileNickname').value.trim();
+        const email = document.getElementById('profileEmail').value.trim();
+
+        // 邮箱格式校验
+        if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+            showNotification('请输入有效的邮箱地址', 'warning');
+            return;
+        }
+
+        const btn = document.getElementById('saveProfileBtn');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>保存中...';
+
+        try {
+            const resp = await apiRequest('/api/auth/profile', {
+                method: 'PUT',
+                body: JSON.stringify({ nickname, email }),
+            });
+            if (!resp) return;
+            const data = await resp.json();
+            if (data.success) {
+                showNotification('个人信息更新成功', 'success');
+                // 更新导航栏显示的昵称
+                const displayName = nickname || document.getElementById('profileUsername').value;
+                document.querySelector('.user-name').textContent = displayName;
+                closeModal('profileModal');
+            } else {
+                showNotification(data.message || '更新失败', 'danger');
+            }
+        } catch (e) {
+            showNotification('更新失败，请重试', 'danger');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>保存';
+        }
+    }
+
+    function clearPasswordForm() {
+        document.getElementById('oldPassword').value = '';
+        document.getElementById('newPassword').value = '';
+        document.getElementById('confirmPassword').value = '';
+    }
+
+    async function changePassword() {
+        const oldPassword = document.getElementById('oldPassword').value;
+        const newPassword = document.getElementById('newPassword').value;
+        const confirmPassword = document.getElementById('confirmPassword').value;
+
+        if (!oldPassword || !newPassword || !confirmPassword) {
+            showNotification('请填写所有密码字段', 'warning');
+            return;
+        }
+
+        if (newPassword.length < 6) {
+            showNotification('新密码长度不能少于6个字符', 'warning');
+            return;
+        }
+
+        if (newPassword !== confirmPassword) {
+            showNotification('两次输入的新密码不一致', 'warning');
+            return;
+        }
+
+        const btn = document.getElementById('changePasswordBtn');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>修改中...';
+
+        try {
+            const resp = await apiRequest('/api/auth/password', {
+                method: 'PUT',
+                body: JSON.stringify({
+                    old_password: oldPassword,
+                    new_password: newPassword,
+                    confirm_password: confirmPassword,
+                }),
+            });
+            if (!resp) return;
+            const data = await resp.json();
+            if (resp.ok && data.success) {
+                showNotification('密码修改成功，请重新登录', 'success');
+                closeModal('passwordModal');
+                setTimeout(() => { window.location.href = '/login'; }, 1500);
+            } else {
+                showNotification(data.error?.message || data.detail || '修改失败', 'danger');
+            }
+        } catch (e) {
+            showNotification('修改失败，请重试', 'danger');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>确认修改';
+        }
+    }
+    
+    // 页面加载完成后获取项目数量
+    document.addEventListener('DOMContentLoaded', updateProjectsBadge);
+
+    // 检查管理员权限并显示管理菜单
+    async function checkAdminPermission() {
+        const adminSection = document.getElementById('adminNavSection');
+        const settingsSection = document.getElementById('settingsNavSection');
+
+        try {
+            const resp = await apiRequest('/api/auth/me');
+            if (!resp) return;
+            const data = await resp.json();
+
+            const isSystemAdmin = data.roles && data.roles.includes('system_admin');
+
+            // 系统管理菜单（账号、权限）仅系统管理员可见
+            if (adminSection) {
+                adminSection.style.display = isSystemAdmin ? '' : 'none';
+            }
+
+            // 系统设置仅系统管理员可见
+            if (settingsSection) {
+                settingsSection.style.display = isSystemAdmin ? '' : 'none';
+            }
+
+            // 更新用户角色显示
+            const roleElement = document.querySelector('.user-role');
+            if (roleElement && data.roles) {
+                const roleMap = {
+                    'system_admin': '系统管理员',
+                    'project_admin': '项目管理员',
+                    'project_member': '项目成员'
+                };
+                const roleNames = data.roles.map(r => roleMap[r] || r).join(', ');
+                roleElement.textContent = roleNames || '用户';
+            }
+        } catch (e) {
+            console.error('检查权限失败:', e);
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', checkAdminPermission);
+    </script>
+    {% endif %}
+
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

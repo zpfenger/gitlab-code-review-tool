@@ -1,0 +1,269 @@
+{% extends "base.html" %}
+
+{% block title %}任务日志 - 代码审查工具{% endblock %}
+
+{% block content %}
+<!-- Page Header -->
+<div class="page-header">
+    <div>
+        <h1 class="page-title">任务日志</h1>
+        <p class="page-subtitle">查看历史任务执行记录</p>
+    </div>
+</div>
+
+<!-- Filters -->
+<div class="card mb-4">
+    <div class="card-body">
+        <form method="get" class="filter-grid filter-grid-4" style="margin-bottom: 0;">
+            <div class="form-group" style="margin-bottom: 0;">
+                <label for="project_id" class="form-label">项目</label>
+                <select class="form-input form-select" id="project_id" name="project_id">
+                    <option value="">全部项目</option>
+                    {% for p in projects %}
+                    <option value="{{ p.id }}" {% if p.id == filters.project_id %}selected{% endif %}>
+                        {{ p.name }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+                <label for="status" class="form-label">状态</label>
+                <select class="form-input form-select" id="status" name="status">
+                    <option value="">全部</option>
+                    <option value="success" {% if filters.status == 'success' %}selected{% endif %}>成功</option>
+                    <option value="running" {% if filters.status == 'running' %}selected{% endif %}>运行中</option>
+                    <option value="failed" {% if filters.status == 'failed' %}selected{% endif %}>失败</option>
+                </select>
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+                <label for="start_date" class="form-label">开始日期</label>
+                <input type="date" class="form-input" id="start_date" name="start_date"
+                       value="{{ filters.start_date }}">
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+                <label for="end_date" class="form-label">结束日期</label>
+                <input type="date" class="form-input" id="end_date" name="end_date"
+                       value="{{ filters.end_date }}">
+            </div>
+            <div style="display: flex; gap: var(--space-2); align-items: flex-end;">
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-search"></i> 筛选
+                </button>
+                <a href="/logs" class="btn btn-secondary">
+                    <i class="bi bi-x-circle"></i>
+                </a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Log List -->
+<div class="card">
+    <div class="card-header">
+        <span><i class="bi bi-table"></i> 执行记录</span>
+        <span class="badge badge-gray">{{ pagination.total }} 条</span>
+    </div>
+    <div class="card-body" style="padding: 0;">
+        {% if logs %}
+        <div class="table-container" style="border: none; border-radius: 0;">
+            <table class="table" style="margin-bottom: 0;">
+                <thead>
+                    <tr>
+                        <th class="col-narrow">ID</th>
+                        <th>项目</th>
+                        <th>类型</th>
+                        <th>状态</th>
+                        <th style="text-align:center;" title="分支数 / 提交数 / 报告数">数据 <small class="text-muted">(分/提/报)</small></th>
+                        <th style="min-width:120px;">开始时间</th>
+                        <th class="col-medium">耗时</th>
+                        <th class="col-actions">操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for log in logs %}
+                    <tr>
+                        <td class="col-narrow">{{ log.id }}</td>
+                        <td><span class="text-truncate-sm">{{ log.project_name }}</span></td>
+                        <td>
+                            {% if log.task_type == 'daily' %}
+                            <span class="badge badge-info">每日审查</span>
+                            {% elif log.task_type == 'weekly' %}
+                            <span class="badge badge-primary">周报</span>
+                            {% elif log.task_type == 'monthly' %}
+                            <span class="badge badge-success">月报</span>
+                            {% else %}
+                            <span class="badge badge-gray">{{ log.task_type }}</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if log.status == 'success' %}
+                            <span class="status">
+                                <span class="status-dot success"></span>
+                                成功
+                            </span>
+                            {% elif log.status == 'running' %}
+                            <span class="status">
+                                <span class="status-dot running"></span>
+                                运行中
+                            </span>
+                            {% elif log.status == 'failed' %}
+                            <span class="status">
+                                <span class="status-dot error"></span>
+                                失败
+                            </span>
+                            {% else %}
+                            <span class="badge badge-gray">{{ log.status }}</span>
+                            {% endif %}
+                        </td>
+                        <td style="text-align:center;">
+                            <small>
+                                <span title="分支">{{ log.branches_processed }}</span> /
+                                <span title="提交">{{ log.commits_processed }}</span> /
+                                <span title="报告">{{ log.reports_generated }}</span>
+                            </small>
+                        </td>
+                        <td><small>{{ log.start_time }}</small></td>
+                        <td class="col-medium">
+                            {% if log.end_time %}
+                            {{ log.duration }}
+                            {% else %}
+                            -
+                            {% endif %}
+                        </td>
+                        <td class="col-actions">
+                            <button class="btn btn-secondary btn-sm" onclick="showDetail({{ log.id }})" title="查看详情">
+                                <i class="bi bi-eye"></i>
+                            </button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Pagination -->
+        {% if pagination.pages > 1 %}
+        <div style="display: flex; justify-content: center; padding: var(--space-4);">
+            <nav>
+                <ul class="pagination" style="margin: 0;">
+                    {% if pagination.page > 1 %}
+                    <li class="page-item">
+                        <a class="page-link" href="?page={{ pagination.page - 1 }}{% for k, v in filters.items() if v %}&{{ k }}={{ v }}{% endfor %}">
+                            上一页
+                        </a>
+                    </li>
+                    {% endif %}
+
+                    {% for p in range(1, pagination.pages + 1) %}
+                    <li class="page-item {% if p == pagination.page %}active{% endif %}">
+                        <a class="page-link" href="?page={{ p }}{% for k, v in filters.items() if v %}&{{ k }}={{ v }}{% endfor %}">
+                            {{ p }}
+                        </a>
+                    </li>
+                    {% endfor %}
+
+                    {% if pagination.page < pagination.pages %}
+                    <li class="page-item">
+                        <a class="page-link" href="?page={{ pagination.page + 1 }}{% for k, v in filters.items() if v %}&{{ k }}={{ v }}{% endfor %}">
+                            下一页
+                        </a>
+                    </li>
+                    {% endif %}
+                </ul>
+            </nav>
+        </div>
+        {% endif %}
+
+        {% else %}
+        <div class="empty-state">
+            <i class="bi bi-inbox"></i>
+            <p>暂无日志记录</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Detail Modal -->
+<div class="modal-overlay" id="detailModalBackdrop"></div>
+<div class="modal" id="detailModal" tabindex="-1" style="max-width: 640px;">
+    <div class="modal-header">
+        <h5 class="modal-title">任务详情</h5>
+    </div>
+    <div class="modal-body" id="detailBody">
+        <div style="text-align: center; padding: var(--space-8);">
+            <span class="spinner-border" role="status"></span>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+async function showDetail(id) {
+    openModal('detailModal');
+
+    try {
+        const response = await fetch(`/api/logs/${id}`);
+        const result = await response.json();
+
+        if (!result.success || !result.data) {
+            document.getElementById('detailBody').innerHTML =
+                `<div class="alert alert-error">加载失败: ${result.error?.message || '未知错误'}</div>`;
+            return;
+        }
+
+        const log = result.data;
+        const typeLabel = log.task_type === 'daily' ? '日报' : log.task_type === 'weekly' ? '周报' : log.task_type;
+        const statusLabel = log.status === 'success' ? '成功' : log.status === 'failed' ? '失败' : log.status === 'running' ? '运行中' : log.status;
+        const triggerLabel = log.trigger_type === 'scheduled' ? '定时' : log.trigger_type === 'manual' ? '手动' : log.trigger_type;
+
+        let html = `
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-6);">
+                <div>
+                    <p><strong>项目:</strong> ${log.project_name || '-'}</p>
+                    <p><strong>类型:</strong> ${typeLabel}</p>
+                    <p><strong>状态:</strong> ${statusLabel}</p>
+                    <p><strong>触发方式:</strong> ${triggerLabel}</p>
+                    ${log.trigger_user ? `<p><strong>触发用户:</strong> ${log.trigger_user}</p>` : ''}
+                </div>
+                <div>
+                    <p><strong>开始时间:</strong> ${log.start_time ? log.start_time.replace('T', ' ').substring(0, 19) : '-'}</p>
+                    <p><strong>结束时间:</strong> ${log.end_time ? log.end_time.replace('T', ' ').substring(0, 19) : '未结束'}</p>
+                    <p><strong>耗时:</strong> ${log.duration || '-'}</p>
+                </div>
+            </div>
+            <hr>
+            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-4); text-align: center;">
+                <div>
+                    <div style="font-size: var(--text-3xl); font-weight: 700; color: var(--color-primary);">${log.branches_processed ?? 0}</div>
+                    <small class="text-muted">分支</small>
+                </div>
+                <div>
+                    <div style="font-size: var(--text-3xl); font-weight: 700; color: var(--color-success);">${log.commits_processed ?? 0}</div>
+                    <small class="text-muted">提交</small>
+                </div>
+                <div>
+                    <div style="font-size: var(--text-3xl); font-weight: 700; color: var(--color-info);">${log.reports_generated ?? 0}</div>
+                    <small class="text-muted">报告</small>
+                </div>
+            </div>
+        `;
+
+        if (log.error_message) {
+            html += `
+                <hr>
+                <div class="alert alert-error" style="margin-bottom: 0;">
+                    <strong>错误信息:</strong><br>
+                    <pre style="margin-top: var(--space-2); margin-bottom: 0; max-height: 200px; overflow-y: auto;">${log.error_message}</pre>
+                </div>
+            `;
+        }
+
+        document.getElementById('detailBody').innerHTML = html;
+    } catch (e) {
+        document.getElementById('detailBody').innerHTML =
+            `<div class="alert alert-error">加载失败: ${e.message}</div>`;
+    }
+}
+</script>
+{% endblock %}

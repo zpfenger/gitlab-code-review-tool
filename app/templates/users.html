@@ -1,0 +1,834 @@
+{% extends "base.html" %}
+
+{% block title %}账号管理 - 代码审查工具{% endblock %}
+
+{% block extra_css %}
+<style>
+    .role-checkboxes {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+    }
+    .role-checkbox {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        padding: 5px 10px;
+        background: #f8f9fa;
+        border-radius: 4px;
+        cursor: pointer;
+    }
+    .role-checkbox input {
+        margin: 0;
+    }
+    .role-label {
+        font-size: 13px;
+    }
+    .role-label.project-admin {
+        color: #856404;
+    }
+    .role-label.project-member {
+        color: #0c5460;
+    }
+    .role-label.system-admin {
+        color: #dc3545;
+    }
+    .project-checklist {
+        max-height: 300px;
+        overflow-y: auto;
+        border: 1px solid #dee2e6;
+        border-radius: 4px;
+        padding: 10px;
+        background: #f8f9fa;
+    }
+    .project-checkbox {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 5px;
+        cursor: pointer;
+    }
+    .project-checkbox:hover {
+        background: #e9ecef;
+    }
+    .project-checkbox input {
+        margin: 0;
+    }
+    .user-name-cell {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+    .user-name-cell .is-admin {
+        color: #dc3545;
+        font-size: 12px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1 class="page-title">
+            <i class="bi bi-people me-2"></i>账号管理
+        </h1>
+        <p class="page-subtitle">管理系统用户账号和权限分配</p>
+    </div>
+    <button class="btn btn-primary" onclick="openCreateUserModal()">
+        <i class="bi bi-plus-lg me-1"></i>创建账号
+    </button>
+</div>
+
+<!-- 搜索和筛选 -->
+<div class="filter-bar">
+    <div class="search-box">
+        <i class="bi bi-search"></i>
+        <input type="text" id="searchInput" placeholder="搜索用户名、昵称或邮箱..." oninput="filterUsers()" autocomplete="off" readonly onfocus="this.removeAttribute('readonly')">
+    </div>
+    <select id="statusFilter" class="filter-select" onchange="filterUsers()">
+        <option value="">全部状态</option>
+        <option value="true">启用</option>
+        <option value="false">禁用</option>
+    </select>
+</div>
+
+<!-- 用户列表 -->
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">
+            <i class="bi bi-list-ul me-2"></i>用户列表
+        </h5>
+        <span class="badge bg-secondary" id="userCount">0</span>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-container" style="border: none; border-radius: 0;">
+            <table class="table" style="margin-bottom: 0;">
+                <thead>
+                    <tr>
+                        <th>用户名</th>
+                        <th>昵称</th>
+                        <th>邮箱</th>
+                        <th>角色</th>
+                        <th>状态</th>
+                        <th>创建时间</th>
+                        <th class="col-actions">操作</th>
+                    </tr>
+                </thead>
+                <tbody id="usersTableBody">
+                    <tr>
+                        <td colspan="7" class="text-center text-muted py-4">
+                            <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+                            加载中...
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- 创建用户模态框 -->
+<div class="modal-overlay" id="createUserModalBackdrop"></div>
+<div class="modal" id="createUserModal" tabindex="-1">
+    <div class="modal-header">
+        <h5 class="modal-title">
+            <i class="bi bi-person-plus me-2"></i>创建新账号
+        </h5>
+        <button type="button" class="btn-close-modal" onclick="closeModal('createUserModal')">&times;</button>
+    </div>
+    <div class="modal-body">
+        <div class="form-group">
+            <label class="form-label">用户名 <span class="text-danger">*</span></label>
+            <input type="text" class="form-input" id="createUsername" placeholder="请输入用户名" required maxlength="50">
+        </div>
+        <div class="form-group">
+            <label class="form-label">密码 <span class="text-danger">*</span></label>
+            <input type="password" class="form-input" id="createPassword" placeholder="请输入密码（至少6位）" required minlength="6">
+        </div>
+        <div class="form-group">
+            <label class="form-label">昵称</label>
+            <input type="text" class="form-input" id="createNickname" placeholder="请输入昵称" maxlength="100">
+        </div>
+        <div class="form-group">
+            <label class="form-label">邮箱</label>
+            <input type="email" class="form-input" id="createEmail" placeholder="请输入邮箱地址" maxlength="100">
+        </div>
+        <div class="form-group">
+            <label class="form-label">角色 <span class="text-danger">*</span></label>
+            <div class="role-checkboxes" id="createRoleCheckboxes">
+                <label class="role-checkbox" id="createRoleSystemAdmin">
+                    <input type="checkbox" name="createRoles" value="system_admin">
+                    <span class="role-label system-admin">系统管理员</span>
+                </label>
+                <label class="role-checkbox">
+                    <input type="checkbox" name="createRoles" value="project_admin">
+                    <span class="role-label project-admin">项目管理员</span>
+                </label>
+                <label class="role-checkbox">
+                    <input type="checkbox" name="createRoles" value="project_member">
+                    <span class="role-label project-member">项目成员</span>
+                </label>
+            </div>
+        </div>
+    </div>
+    <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('createUserModal')">取消</button>
+        <button type="button" class="btn btn-primary" id="createUserBtn" onclick="createUser()">
+            <i class="bi bi-check-lg me-1"></i>创建
+        </button>
+    </div>
+</div>
+
+<!-- 编辑用户模态框 -->
+<div class="modal-overlay" id="editUserModalBackdrop"></div>
+<div class="modal" id="editUserModal" tabindex="-1">
+    <div class="modal-header">
+        <h5 class="modal-title">
+            <i class="bi bi-pencil me-2"></i>编辑用户
+        </h5>
+        <button type="button" class="btn-close-modal" onclick="closeModal('editUserModal')">&times;</button>
+    </div>
+    <div class="modal-body">
+        <input type="hidden" id="editUserId">
+        <div class="form-group">
+            <label class="form-label">用户名</label>
+            <input type="text" class="form-input" id="editUsername" disabled>
+        </div>
+        <div class="form-group">
+            <label class="form-label">昵称</label>
+            <input type="text" class="form-input" id="editNickname" placeholder="请输入昵称" maxlength="100">
+        </div>
+        <div class="form-group">
+            <label class="form-label">邮箱</label>
+            <input type="email" class="form-input" id="editEmail" placeholder="请输入邮箱地址" maxlength="100">
+        </div>
+        <div class="form-group">
+            <label class="form-label">状态</label>
+            <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" id="editIsActive">
+                <label class="form-check-label" for="editIsActive">启用账号</label>
+            </div>
+        </div>
+        <div class="form-group" id="editRoleSection">
+            <label class="form-label">角色</label>
+            <div class="role-checkboxes" id="editRoleCheckboxes">
+                <label class="role-checkbox" id="editRoleSystemAdmin">
+                    <input type="checkbox" name="editRoles" value="system_admin">
+                    <span class="role-label system-admin">系统管理员</span>
+                </label>
+                <label class="role-checkbox">
+                    <input type="checkbox" name="editRoles" value="project_admin">
+                    <span class="role-label project-admin">项目管理员</span>
+                </label>
+                <label class="role-checkbox">
+                    <input type="checkbox" name="editRoles" value="project_member">
+                    <span class="role-label project-member">项目成员</span>
+                </label>
+            </div>
+        </div>
+    </div>
+    <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('editUserModal')">取消</button>
+        <button type="button" class="btn btn-primary" id="updateUserBtn" onclick="updateUser()">
+            <i class="bi bi-check-lg me-1"></i>保存
+        </button>
+    </div>
+</div>
+
+<!-- 重置密码模态框 -->
+<div class="modal-overlay" id="resetPwdModalBackdrop"></div>
+<div class="modal" id="resetPwdModal" tabindex="-1">
+    <div class="modal-header">
+        <h5 class="modal-title">
+            <i class="bi bi-key me-2"></i>重置密码
+        </h5>
+        <button type="button" class="btn-close-modal" onclick="closeModal('resetPwdModal')">&times;</button>
+    </div>
+    <div class="modal-body">
+        <input type="hidden" id="resetPwdUserId">
+        <p>将为用户 <strong id="resetPwdUsername"></strong> 重置密码</p>
+        <div class="form-group">
+            <label class="form-label">新密码 <span class="text-danger">*</span></label>
+            <input type="password" class="form-input" id="resetPwdNew" placeholder="请输入新密码（至少6位）" required minlength="6">
+        </div>
+    </div>
+    <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('resetPwdModal')">取消</button>
+        <button type="button" class="btn btn-primary" id="resetPwdBtn" onclick="resetPassword()">
+            <i class="bi bi-check-lg me-1"></i>确认重置
+        </button>
+    </div>
+</div>
+
+<!-- 项目权限分配模态框 -->
+<div class="modal-overlay" id="projectPermModalBackdrop"></div>
+<div class="modal modal-lg" id="projectPermModal" tabindex="-1">
+    <div class="modal-header">
+        <h5 class="modal-title">
+            <i class="bi bi-folder-check me-2"></i>分配项目权限
+        </h5>
+        <button type="button" class="btn-close-modal" onclick="closeModal('projectPermModal')">&times;</button>
+    </div>
+    <div class="modal-body">
+        <input type="hidden" id="permUserId">
+        <div class="mb-3">
+            <strong id="permUsername"></strong> 的项目权限
+        </div>
+        <div class="row" id="permRow">
+            <div class="col-md-6" id="adminCol">
+                <h6><i class="bi bi-shield me-1"></i>项目管理员权限</h6>
+                <p class="text-muted small">可管理（创建、修改、删除）以下项目</p>
+                <div class="project-checklist" id="adminProjectsList">
+                    <!-- 动态加载 -->
+                </div>
+            </div>
+            <div class="col-md-6" id="memberCol">
+                <h6><i class="bi bi-eye me-1"></i>项目成员权限</h6>
+                <p class="text-muted small">可查看以下项目的数据（不能修改）</p>
+                <div class="project-checklist" id="memberProjectsList">
+                    <!-- 动态加载 -->
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('projectPermModal')">取消</button>
+        <button type="button" class="btn btn-primary" id="savePermBtn" onclick="saveProjectPermissions()">
+            <i class="bi bi-check-lg me-1"></i>保存权限
+        </button>
+    </div>
+</div>
+
+<!-- 删除确认模态框 -->
+<div class="modal-overlay" id="deleteUserModalBackdrop"></div>
+<div class="modal" id="deleteUserModal" tabindex="-1">
+    <div class="modal-header">
+        <h5 class="modal-title text-danger">
+            <i class="bi bi-exclamation-triangle me-2"></i>确认删除
+        </h5>
+        <button type="button" class="btn-close-modal" onclick="closeModal('deleteUserModal')">&times;</button>
+    </div>
+    <div class="modal-body">
+        <input type="hidden" id="deleteUserId">
+        <p>确定要删除用户 <strong id="deleteUsername"></strong> 吗？</p>
+        <p class="text-danger small">此操作不可恢复！</p>
+    </div>
+    <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('deleteUserModal')">取消</button>
+        <button type="button" class="btn btn-danger" id="deleteUserBtn" onclick="deleteUser()">
+            <i class="bi bi-trash me-1"></i>确认删除
+        </button>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    let allUsers = [];
+    let allProjects = [];
+    // 当前用户角色（从后端传入，用于权限校验）
+    const currentUserRoles = {{ current_user_roles | tojson if current_user_roles else '[]' }};
+    // 当前用户可分配哪些权限
+    const isCurrentUserSystemAdmin = Array.isArray(currentUserRoles) && currentUserRoles.includes('system_admin');
+    const canCurrentUserAssignProjectAdmin = isCurrentUserSystemAdmin || (Array.isArray(currentUserRoles) && currentUserRoles.includes('project_admin'));
+    const canCurrentUserAssignProjectMember = isCurrentUserSystemAdmin || (Array.isArray(currentUserRoles) && currentUserRoles.includes('project_member'));
+
+    // 非系统管理员隐藏系统管理员角色选项
+    if (!isCurrentUserSystemAdmin) {
+        const createSysAdmin = document.getElementById('createRoleSystemAdmin');
+        if (createSysAdmin) createSysAdmin.style.display = 'none';
+        const editSysAdmin = document.getElementById('editRoleSystemAdmin');
+        if (editSysAdmin) editSysAdmin.style.display = 'none';
+    }
+
+    // 无角色分配权限时隐藏角色编辑区块
+    if (!canCurrentUserAssignProjectAdmin && !canCurrentUserAssignProjectMember) {
+        const editRoleSection = document.getElementById('editRoleSection');
+        if (editRoleSection) editRoleSection.style.display = 'none';
+    }
+
+    // 加载用户列表
+    async function loadUsers() {
+        try {
+            const resp = await apiRequest('/api/users');
+            if (!resp || !resp.ok) {
+                if (resp && resp.status === 403) {
+                    showNotification('您没有权限访问账号管理', 'danger');
+                }
+                document.getElementById('usersTableBody').innerHTML =
+                    '<tr><td colspan="7" class="text-center text-danger py-4">无权限或加载失败，请重新登录</td></tr>';
+                return;
+            }
+            const data = await resp.json();
+            // 后端直接返回数组，兼容两种格式
+            allUsers = Array.isArray(data) ? data : (data.data || []);
+            renderUsers();
+        } catch (e) {
+            showNotification('加载用户列表失败', 'danger');
+            document.getElementById('usersTableBody').innerHTML =
+                '<tr><td colspan="7" class="text-center text-danger py-4">加载失败，请刷新页面重试</td></tr>';
+        }
+    }
+
+    // 加载项目列表
+    async function loadProjects() {
+        try {
+            const resp = await apiRequest('/api/projects');
+            if (!resp || !resp.ok) return;
+            const data = await resp.json();
+            // 兼容两种格式
+            allProjects = Array.isArray(data) ? data : (data.data || []);
+            renderProjectLists();
+        } catch (e) {
+            console.error('加载项目列表失败:', e);
+        }
+    }
+
+    // 渲染用户列表
+    function renderUsers() {
+        const tbody = document.getElementById('usersTableBody');
+        const search = document.getElementById('searchInput').value.toLowerCase();
+        const statusFilter = document.getElementById('statusFilter').value;
+
+        const filtered = allUsers.filter(user => {
+            const matchSearch = !search ||
+                user.username.toLowerCase().includes(search) ||
+                (user.nickname && user.nickname.toLowerCase().includes(search)) ||
+                (user.email && user.email.toLowerCase().includes(search));
+
+            const matchStatus = !statusFilter ||
+                String(user.is_active) === statusFilter;
+
+            return matchSearch && matchStatus;
+        });
+
+        document.getElementById('userCount').textContent = filtered.length;
+
+        if (filtered.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">暂无数据</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = filtered.map(user => {
+            const roleBadges = user.roles.map(role => {
+                const roleClass = role === 'system_admin' ? 'bg-danger' :
+                                  role === 'project_admin' ? 'bg-warning text-dark' : 'bg-info';
+                const roleName = role === 'system_admin' ? '系统管理员' :
+                                role === 'project_admin' ? '项目管理员' : '项目成员';
+                return `<span class="badge ${roleClass} me-1">${roleName}</span>`;
+            }).join('');
+
+            const isAdmin = user.roles.includes('system_admin');
+            const usernameCell = `
+                <div class="user-name-cell">
+                    <strong>${escapeHtml(user.username)}</strong>
+                    ${isAdmin ? '<span class="is-admin" title="系统管理员"><i class="bi bi-shield-fill"></i></span>' : ''}
+                </div>
+            `;
+
+            return `
+                <tr>
+                    <td>${usernameCell}</td>
+                    <td>${escapeHtml(user.nickname || '-')}</td>
+                    <td><span class="text-truncate-sm" title="${escapeHtml(user.email || '')}">${escapeHtml(user.email || '-')}</span></td>
+                    <td>${roleBadges || '<span class="text-muted">无角色</span>'}</td>
+                    <td>
+                        <span class="badge ${user.is_active ? 'bg-success' : 'bg-secondary'}">
+                            ${user.is_active ? '启用' : '禁用'}
+                        </span>
+                    </td>
+                    <td>${formatDate(user.created_at)}</td>
+                    <td class="col-actions">
+                        <div style="display: flex; gap: 4px; justify-content: center; flex-wrap: wrap;">
+                            <button class="btn btn-outline-primary btn-sm" onclick="openEditUserModal(${user.id})" title="编辑" style="padding: 4px 8px; font-size: 12px;">
+                                <i class="bi bi-pencil"></i>
+                            </button>
+                            <button class="btn btn-outline-warning btn-sm" onclick="openResetPwdModal(${user.id})" title="重置密码" style="padding: 4px 8px; font-size: 12px;">
+                                <i class="bi bi-key"></i>
+                            </button>
+                            <button class="btn btn-outline-info btn-sm" onclick="openProjectPermModal(${user.id})" title="项目权限" style="padding: 4px 8px; font-size: 12px;">
+                                <i class="bi bi-folder-check"></i>
+                            </button>
+                            ${!user.roles.includes('system_admin') ? `
+                            <button class="btn btn-outline-danger btn-sm" onclick="openDeleteUserModal(${user.id})" title="删除" style="padding: 4px 8px; font-size: 12px;">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                            ` : ''}
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    // 筛选用户
+    function filterUsers() {
+        renderUsers();
+    }
+
+    // 打开创建用户模态框
+    function openCreateUserModal() {
+        document.getElementById('createUsername').value = '';
+        document.getElementById('createPassword').value = '';
+        document.getElementById('createNickname').value = '';
+        document.getElementById('createEmail').value = '';
+        document.querySelectorAll('input[name="createRoles"]').forEach(cb => cb.checked = false);
+        openModal('createUserModal');
+    }
+
+    // 创建用户
+    async function createUser() {
+        const username = document.getElementById('createUsername').value.trim();
+        const password = document.getElementById('createPassword').value;
+        const nickname = document.getElementById('createNickname').value.trim();
+        const email = document.getElementById('createEmail').value.trim();
+        const roles = Array.from(document.querySelectorAll('input[name="createRoles"]:checked'))
+            .map(cb => cb.value);
+
+        if (!username) {
+            showNotification('请输入用户名', 'warning');
+            return;
+        }
+        if (password.length < 6) {
+            showNotification('密码长度不能少于6个字符', 'warning');
+            return;
+        }
+
+        const btn = document.getElementById('createUserBtn');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>创建中...';
+
+        try {
+            const resp = await apiRequest('/api/users', {
+                method: 'POST',
+                body: JSON.stringify({ username, password, nickname, email, role_names: roles }),
+            });
+            const data = await resp.json();
+
+            if (resp.ok) {
+                showNotification('用户创建成功', 'success');
+                closeModal('createUserModal');
+                loadUsers();
+            } else {
+                showNotification(data.detail || '创建失败', 'danger');
+            }
+        } catch (e) {
+            showNotification('创建失败，请重试', 'danger');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>创建';
+        }
+    }
+
+    // 打开编辑用户模态框
+    async function openEditUserModal(userId) {
+        try {
+            const resp = await apiRequest(`/api/users/${userId}`);
+            if (!resp || !resp.ok) return;
+            const data = await resp.json();
+
+            document.getElementById('editUserId').value = data.id;
+            document.getElementById('editUsername').value = data.username;
+            document.getElementById('editNickname').value = data.nickname || '';
+            document.getElementById('editEmail').value = data.email || '';
+            document.getElementById('editIsActive').checked = data.is_active;
+
+            document.querySelectorAll('input[name="editRoles"]').forEach(cb => {
+                cb.checked = data.roles.some(r => r.name === cb.value);
+            });
+
+            openModal('editUserModal');
+        } catch (e) {
+            showNotification('加载用户信息失败', 'danger');
+        }
+    }
+
+    // 更新用户
+    async function updateUser() {
+        const userId = document.getElementById('editUserId').value;
+        const nickname = document.getElementById('editNickname').value.trim();
+        const email = document.getElementById('editEmail').value.trim();
+        const is_active = document.getElementById('editIsActive').checked;
+        const roles = Array.from(document.querySelectorAll('input[name="editRoles"]:checked'))
+            .map(cb => cb.value);
+
+        const btn = document.getElementById('updateUserBtn');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>保存中...';
+
+        try {
+            // 更新基本信息
+            const resp1 = await apiRequest(`/api/users/${userId}`, {
+                method: 'PUT',
+                body: JSON.stringify({ nickname, email, is_active }),
+            });
+            const data1 = await resp1.json();
+
+            if (!resp1.ok) {
+                showNotification(data1.detail || '更新失败', 'danger');
+                return;
+            }
+
+            // 更新角色
+            const resp2 = await apiRequest(`/api/users/${userId}/roles`, {
+                method: 'PUT',
+                body: JSON.stringify(roles),
+            });
+
+            if (resp2.ok) {
+                showNotification('用户更新成功', 'success');
+                closeModal('editUserModal');
+                loadUsers();
+            } else {
+                const data2 = await resp2.json();
+                showNotification(data2.detail || '角色更新失败', 'warning');
+            }
+        } catch (e) {
+            showNotification('更新失败，请重试', 'danger');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>保存';
+        }
+    }
+
+    // 打开重置密码模态框
+    async function openResetPwdModal(userId) {
+        const user = allUsers.find(u => u.id === userId);
+        if (!user) return;
+
+        document.getElementById('resetPwdUserId').value = userId;
+        document.getElementById('resetPwdUsername').textContent = user.username;
+        document.getElementById('resetPwdNew').value = '';
+        openModal('resetPwdModal');
+    }
+
+    // 重置密码
+    async function resetPassword() {
+        const userId = document.getElementById('resetPwdUserId').value;
+        const newPassword = document.getElementById('resetPwdNew').value;
+
+        if (newPassword.length < 6) {
+            showNotification('密码长度不能少于6个字符', 'warning');
+            return;
+        }
+
+        const btn = document.getElementById('resetPwdBtn');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>重置中...';
+
+        try {
+            const resp = await apiRequest(`/api/users/${userId}/password`, {
+                method: 'PUT',
+                body: JSON.stringify({ new_password: newPassword }),
+            });
+
+            if (resp.ok) {
+                showNotification('密码重置成功', 'success');
+                closeModal('resetPwdModal');
+            } else {
+                const data = await resp.json();
+                showNotification(data.detail || '重置失败', 'danger');
+            }
+        } catch (e) {
+            showNotification('重置失败，请重试', 'danger');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>确认重置';
+        }
+    }
+
+    // 打开项目权限模态框
+    async function openProjectPermModal(userId) {
+        const user = allUsers.find(u => u.id === userId);
+        if (!user) return;
+
+        document.getElementById('permUserId').value = userId;
+        document.getElementById('permUsername').textContent = user.username;
+
+        // 根据被编辑用户拥有的角色，决定显示哪些列
+        const userRoles = user.roles || [];
+        const hasProjectAdminRole = userRoles.includes('project_admin');
+        const hasProjectMemberRole = userRoles.includes('project_member');
+
+        document.getElementById('adminCol').style.display = hasProjectAdminRole ? '' : 'none';
+        document.getElementById('memberCol').style.display = hasProjectMemberRole ? '' : 'none';
+
+        // 动态调整 permRow 布局
+        const adminCol = document.getElementById('adminCol');
+        const memberCol = document.getElementById('memberCol');
+        if (!hasProjectAdminRole && hasProjectMemberRole) {
+            memberCol.className = 'col-md-12';
+            adminCol.style.display = 'none';
+        } else if (hasProjectAdminRole && !hasProjectMemberRole) {
+            adminCol.className = 'col-md-12';
+            memberCol.style.display = 'none';
+        } else {
+            adminCol.className = 'col-md-6';
+            memberCol.className = 'col-md-6';
+        }
+
+        // 加载用户详情获取当前项目权限
+        try {
+            const resp = await apiRequest(`/api/users/${userId}`);
+            if (!resp || !resp.ok) return;
+            const data = await resp.json();
+
+            // 渲染项目列表并勾选已有权限
+            renderProjectLists(data.admin_projects, data.member_projects);
+            openModal('projectPermModal');
+        } catch (e) {
+            showNotification('加载权限信息失败', 'danger');
+        }
+    }
+
+    // 渲染项目列表
+    function renderProjectLists(adminProjects = [], memberProjects = []) {
+        const adminList = document.getElementById('adminProjectsList');
+        const memberList = document.getElementById('memberProjectsList');
+
+        if (allProjects.length === 0) {
+            adminList.innerHTML = '<p class="text-muted small">暂无项目</p>';
+            memberList.innerHTML = '<p class="text-muted small">暂无项目</p>';
+            return;
+        }
+
+        const adminIds = new Set(adminProjects.map(p => p.id));
+        const memberIds = new Set(memberProjects.map(p => p.id));
+
+        const projectHtml = allProjects.map(p => `
+            <label class="project-checkbox">
+                <input type="checkbox" data-project-id="${p.id}" data-type="admin">
+                <span>${escapeHtml(p.name)}</span>
+            </label>
+        `).join('');
+        adminList.innerHTML = projectHtml;
+
+        const memberHtml = allProjects.map(p => `
+            <label class="project-checkbox">
+                <input type="checkbox" data-project-id="${p.id}" data-type="member">
+                <span>${escapeHtml(p.name)}</span>
+            </label>
+        `).join('');
+        memberList.innerHTML = memberHtml;
+
+        // 恢复勾选状态
+        adminIds.forEach(id => {
+            const cb = adminList.querySelector(`input[data-project-id="${id}"][data-type="admin"]`);
+            if (cb) cb.checked = true;
+        });
+        memberIds.forEach(id => {
+            const cb = memberList.querySelector(`input[data-project-id="${id}"][data-type="member"]`);
+            if (cb) cb.checked = true;
+        });
+    }
+
+    // 保存项目权限
+    async function saveProjectPermissions() {
+        const userId = document.getElementById('permUserId').value;
+        const adminList = document.getElementById('adminProjectsList');
+        const memberList = document.getElementById('memberProjectsList');
+
+        const adminProjectIds = Array.from(adminList.querySelectorAll('input:checked'))
+            .map(cb => parseInt(cb.dataset.projectId));
+        const memberProjectIds = Array.from(memberList.querySelectorAll('input:checked'))
+            .map(cb => parseInt(cb.dataset.projectId));
+
+        const btn = document.getElementById('savePermBtn');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>保存中...';
+
+        try {
+            let success = true;
+
+            // 只有当前用户有权限分配项目管理员权限时，才保存
+            if (canCurrentUserAssignProjectAdmin) {
+                const resp1 = await apiRequest(`/api/users/${userId}/projects/admin`, {
+                    method: 'POST',
+                    body: JSON.stringify(adminProjectIds),
+                });
+                if (!resp1.ok) success = false;
+            }
+
+            // 只有当前用户有权限分配项目成员权限时，才保存
+            if (canCurrentUserAssignProjectMember) {
+                const resp2 = await apiRequest(`/api/users/${userId}/projects/member`, {
+                    method: 'POST',
+                    body: JSON.stringify(memberProjectIds),
+                });
+                if (!resp2.ok) success = false;
+            }
+
+            if (success) {
+                showNotification('权限保存成功', 'success');
+                closeModal('projectPermModal');
+            } else {
+                showNotification('部分权限保存失败', 'warning');
+            }
+        } catch (e) {
+            showNotification('保存失败，请重试', 'danger');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>保存权限';
+        }
+    }
+
+    // 打开删除确认模态框
+    function openDeleteUserModal(userId) {
+        const user = allUsers.find(u => u.id === userId);
+        if (!user) return;
+
+        document.getElementById('deleteUserId').value = userId;
+        document.getElementById('deleteUsername').textContent = user.username;
+        openModal('deleteUserModal');
+    }
+
+    // 删除用户
+    async function deleteUser() {
+        const userId = document.getElementById('deleteUserId').value;
+
+        const btn = document.getElementById('deleteUserBtn');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>删除中...';
+
+        try {
+            const resp = await apiRequest(`/api/users/${userId}`, {
+                method: 'DELETE',
+            });
+
+            if (resp.ok) {
+                showNotification('用户已删除', 'success');
+                closeModal('deleteUserModal');
+                loadUsers();
+            } else {
+                const data = await resp.json();
+                showNotification(data.detail || '删除失败', 'danger');
+            }
+        } catch (e) {
+            showNotification('删除失败，请重试', 'danger');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-trash me-1"></i>确认删除';
+        }
+    }
+
+    // 工具函数
+    function escapeHtml(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    function formatDate(dateStr) {
+        if (!dateStr) return '-';
+        const date = new Date(dateStr);
+        return date.toLocaleDateString('zh-CN');
+    }
+
+    // 页面加载
+    document.addEventListener('DOMContentLoaded', async function() {
+        await loadUsers();
+        await loadProjects();
+    });
+</script>
+{% endblock %}

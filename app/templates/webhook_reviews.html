@@ -1,0 +1,453 @@
+{% extends "base.html" %}
+
+{% block title %}Webhook 审查 - 代码审查工具{% endblock %}
+
+{% block extra_css %}
+<style>
+.score-badge { font-size: var(--text-xs); min-width: 45px; display: inline-block; text-align: center; padding: var(--space-1) var(--space-2); border-radius: var(--radius-full); }
+.score-high { background-color: var(--color-success); color: white; }
+.score-mid { background-color: var(--color-warning); color: white; }
+.score-low { background-color: var(--color-error); color: white; }
+.delta-add { color: var(--color-success); font-weight: 600; }
+.delta-del { color: var(--color-error); font-weight: 600; }
+.chart-container { height: 300px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- Page Header -->
+<div class="page-header">
+    <div>
+        <h1 class="page-title">Webhook 审查</h1>
+        <p class="page-subtitle">实时 Webhook 触发的代码审查记录与统计</p>
+    </div>
+</div>
+
+<!-- GitLab Webhook Configuration -->
+<div class="card mb-4" style="border-color: var(--color-primary);">
+    <div class="card-header" style="background: var(--color-primary); color: white;">
+        <i class="bi bi-info-circle"></i> GitLab Webhook 配置
+    </div>
+    <div class="card-body">
+        <div style="display: grid; grid-template-columns: 1fr auto; gap: var(--space-4); align-items: center;">
+            <div>
+                <p style="margin-bottom: var(--space-2);"><strong>Webhook 回调地址：</strong></p>
+                <div style="display: flex; gap: var(--space-2); max-width: 600px;">
+                    <input type="text" class="form-input" id="webhookUrlDisplay" readonly value="获取中..." style="font-family: var(--font-mono);">
+                    <button class="btn btn-secondary" onclick="copyWebhookUrl()" title="复制">
+                        <i class="bi bi-clipboard"></i>
+                    </button>
+                </div>
+                <small class="text-muted">
+                    前往 <strong>GitLab 项目 → Settings → Webhooks</strong>，填入上方地址，
+                    勾选 <code>Merge request events</code>（可选 <code>Push events</code>），
+                    取消勾选 <strong>Enable SSL verification</strong>（如使用 http），
+                    点击 <strong>Add webhook</strong> 后测试确认返回 200。
+                </small>
+            </div>
+            <div style="text-align: right;">
+                <span class="spinner-border spinner-border-sm text-primary" id="webhookUrlSpinner" role="status"></span>
+                <span class="badge badge-success" id="webhookUrlOk" style="display: none;"><i class="bi bi-check-circle"></i> 已获取</span>
+                <span class="badge badge-error" id="webhookUrlFail" style="display: none;"><i class="bi bi-x-circle"></i> 获取失败</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Stats Cards -->
+<div class="stats-grid mb-4" id="statsCards">
+    <div class="stat-card primary">
+        <div class="stat-icon"><i class="bi bi-list-ol"></i></div>
+        <div class="stat-value" id="statTotal">-</div>
+        <div class="stat-label">总审查数</div>
+    </div>
+    <div class="stat-card success">
+        <div class="stat-icon"><i class="bi bi-star"></i></div>
+        <div class="stat-value" id="statAvgScore">-</div>
+        <div class="stat-label">平均评分</div>
+    </div>
+    <div class="stat-card warning">
+        <div class="stat-icon"><i class="bi bi-folder"></i></div>
+        <div class="stat-value" id="statProjects">-</div>
+        <div class="stat-label">涉及项目</div>
+    </div>
+    <div class="stat-card info">
+        <div class="stat-icon"><i class="bi bi-people"></i></div>
+        <div class="stat-value" id="statAuthors">-</div>
+        <div class="stat-label">涉及开发者</div>
+    </div>
+</div>
+
+<!-- Tab + Filters -->
+<div class="card mb-4">
+    <div class="card-header" style="padding: 0; border-bottom: none;">
+        <ul class="nav" style="display: flex; gap: var(--space-1);" role="tablist">
+            <li>
+                <button class="nav-link active" data-type="mr" onclick="switchTab('mr')" style="display: flex; align-items: center; gap: var(--space-2); padding: var(--space-4); border-radius: var(--radius-md) var(--radius-md) 0 0; border: none; border-bottom: 2px solid transparent; color: var(--color-slate-600); background: transparent; cursor: pointer;">
+                    <i class="bi bi-git"></i> 合并请求
+                </button>
+            </li>
+            <li>
+                <button class="nav-link" data-type="push" onclick="switchTab('push')" style="display: flex; align-items: center; gap: var(--space-2); padding: var(--space-4); border-radius: var(--radius-md) var(--radius-md) 0 0; border: none; border-bottom: 2px solid transparent; color: var(--color-slate-600); background: transparent; cursor: pointer;">
+                    <i class="bi bi-arrow-up-circle"></i> 代码推送
+                </button>
+            </li>
+        </ul>
+    </div>
+    <div class="card-body">
+        <!-- Filters -->
+        <div class="filter-grid filter-grid-4" style="margin-bottom: 0;">
+            <div class="form-group" style="margin-bottom: 0;">
+                <label for="filterProject" class="form-label">项目名称</label>
+                <input type="text" class="form-input" id="filterProject" placeholder="项目名称">
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+                <label for="filterAuthor" class="form-label">提交者</label>
+                <input type="text" class="form-input" id="filterAuthor" placeholder="提交者">
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+                <label for="filterStartDate" class="form-label">开始日期</label>
+                <input type="date" class="form-input" id="filterStartDate">
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+                <label for="filterEndDate" class="form-label">结束日期</label>
+                <input type="date" class="form-input" id="filterEndDate">
+            </div>
+            <div style="display: flex; align-items: flex-end;">
+                <button class="btn btn-primary" onclick="loadData()">
+                    <i class="bi bi-search"></i> 筛选
+                </button>
+            </div>
+        </div>
+
+        <!-- Data Table -->
+        <div class="table-container" style="margin-top: var(--space-4);">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th style="min-width:100px;">项目</th>
+                        <th style="min-width:80px;">提交者</th>
+                        <th style="min-width:160px;" id="branchHeader">源分支 → 目标分支</th>
+                        <th style="min-width:140px;">提交信息</th>
+                        <th style="min-width:80px;">代码变更</th>
+                        <th style="min-width:55px;">评分</th>
+                        <th style="min-width:90px;">时间</th>
+                        <th class="col-actions">操作</th>
+                    </tr>
+                </thead>
+                <tbody id="reviewTableBody">
+                    <tr>
+                        <td colspan="8" style="text-align: center; color: var(--color-slate-500); padding: var(--space-8);">加载中...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Pagination -->
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: var(--space-4); padding-top: var(--space-4); border-top: 1px solid var(--color-slate-200);">
+            <span class="text-muted" id="paginationInfo"></span>
+            <ul class="pagination" style="margin: 0;" id="paginationLinks"></ul>
+        </div>
+    </div>
+</div>
+
+<!-- Charts -->
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-6);">
+    <div class="card">
+        <div class="card-header"><i class="bi bi-bar-chart"></i> 按项目提交数</div>
+        <div class="card-body chart-container">
+            <canvas id="projectCountChart"></canvas>
+        </div>
+    </div>
+    <div class="card">
+        <div class="card-header"><i class="bi bi-bar-chart"></i> 按项目平均评分</div>
+        <div class="card-body chart-container">
+            <canvas id="projectScoreChart"></canvas>
+        </div>
+    </div>
+    <div class="card">
+        <div class="card-header"><i class="bi bi-people"></i> 按开发者提交数</div>
+        <div class="card-body chart-container">
+            <canvas id="authorCountChart"></canvas>
+        </div>
+    </div>
+    <div class="card">
+        <div class="card-header"><i class="bi bi-people"></i> 按开发者平均评分</div>
+        <div class="card-body chart-container">
+            <canvas id="authorScoreChart"></canvas>
+        </div>
+    </div>
+</div>
+
+<!-- Review Detail Modal -->
+<div class="modal-overlay" id="reviewDetailModalBackdrop"></div>
+<div class="modal" id="reviewDetailModal" tabindex="-1" style="max-width: 720px;">
+    <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-file-code"></i> AI 审查结果</h5>
+    </div>
+    <div class="modal-body" id="reviewDetailBody" style="white-space: pre-wrap;"></div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+<script>
+// 角色权限变量（由后端传递）
+const currentUserRoles = {{ current_user_roles | tojson }};
+const canDelete = currentUserRoles.includes('system_admin') || currentUserRoles.includes('project_admin');
+
+let currentType = 'mr';
+let currentPage = 1;
+let charts = {};
+
+function switchTab(type) {
+    currentType = type;
+    currentPage = 1;
+    document.querySelectorAll('[data-type]').forEach(el => {
+        el.classList.remove('active');
+        el.style.borderBottomColor = 'transparent';
+        el.style.color = 'var(--color-slate-600)';
+    });
+    const activeTab = document.querySelector(`[data-type="${type}"]`);
+    activeTab.classList.add('active');
+    activeTab.style.borderBottomColor = 'var(--color-primary)';
+    activeTab.style.color = 'var(--color-primary)';
+    document.getElementById('branchHeader').textContent =
+        type === 'mr' ? '源分支 → 目标分支' : '分支';
+    loadData();
+    loadStats();
+}
+
+// Initialize tab style
+document.addEventListener('DOMContentLoaded', function() {
+    const activeTab = document.querySelector('[data-type="mr"]');
+    if (activeTab) {
+        activeTab.style.borderBottomColor = 'var(--color-primary)';
+        activeTab.style.color = 'var(--color-primary)';
+    }
+});
+
+async function loadData() {
+    const params = new URLSearchParams({
+        review_type: currentType,
+        page: currentPage,
+        page_size: 20,
+    });
+    const project = document.getElementById('filterProject').value;
+    const author = document.getElementById('filterAuthor').value;
+    const startDate = document.getElementById('filterStartDate').value;
+    const endDate = document.getElementById('filterEndDate').value;
+    if (project) params.set('project_name', project);
+    if (author) params.set('author', author);
+    if (startDate) params.set('start_date', startDate);
+    if (endDate) params.set('end_date', endDate);
+
+    try {
+        const resp = await apiRequest(`/api/webhook-reviews?${params}`);
+        if (!resp) return;
+        const result = await resp.json();
+        if (!result.success) return;
+        renderTable(result.data.items);
+        renderPagination(result.data);
+    } catch (e) {
+        console.error('加载数据失败:', e);
+    }
+}
+
+function renderTable(items) {
+    const tbody = document.getElementById('reviewTableBody');
+    if (!items || items.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--color-slate-500);">暂无数据</td></tr>';
+        return;
+    }
+    tbody.innerHTML = items.map(item => {
+        const ts = new Date(item.updated_at * 1000);
+        const timeStr = ts.toLocaleString('zh-CN', {hour12: false});
+        const scoreClass = item.score >= 80 ? 'score-high' : (item.score >= 60 ? 'score-mid' : 'score-low');
+        const branch = currentType === 'mr'
+            ? `${item.source_branch || ''} → ${item.target_branch || ''}`
+            : (item.branch || '');
+        const commits = (item.commit_messages || '').substring(0, 50);
+        return `<tr>
+            <td><span class="text-truncate-sm" title="${item.project_name || ''}">${item.project_name || ''}</span></td>
+            <td>${item.author || ''}</td>
+            <td><span class="text-truncate-lg" title="${branch}"><small>${branch}</small></span></td>
+            <td><span class="text-truncate" title="${(item.commit_messages || '').replace(/"/g, '&quot;')}">${commits}${(item.commit_messages||'').length > 50 ? '...' : ''}</span></td>
+            <td style="white-space:nowrap;"><span class="delta-add">+${item.additions || 0}</span> <span class="delta-del">-${item.deletions || 0}</span></td>
+            <td><span class="score-badge ${scoreClass}">${item.score || 0}</span></td>
+            <td><small title="${timeStr}">${timeStr.substring(5, 16)}</small></td>
+            <td class="col-actions">
+                <div style="display: flex; gap: var(--space-1); justify-content: center;">
+                    <button class="btn btn-secondary btn-sm" onclick="showDetail(${item.id})" title="查看详情">
+                        <i class="bi bi-eye"></i>
+                    </button>
+                    ${item.url ? `<a href="${item.url}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm" title="打开链接"><i class="bi bi-box-arrow-up-right"></i></a>` : ''}
+                    ${canDelete ? `<button class="btn btn-danger btn-sm" onclick="deleteReview(${item.id})" title="删除"><i class="bi bi-trash"></i></button>` : ''}
+                </div>
+            </td>
+        </tr>`;
+    }).join('');
+}
+
+function renderPagination(data) {
+    document.getElementById('paginationInfo').textContent =
+        `共 ${data.total} 条，第 ${data.page}/${data.pages || 1} 页`;
+    const links = document.getElementById('paginationLinks');
+    if (data.pages <= 1) { links.innerHTML = ''; return; }
+    let html = '';
+    if (data.page > 1) html += `<li class="page-item"><a class="page-link" href="#" onclick="goPage(${data.page-1}); return false;">上一页</a></li>`;
+    for (let i = Math.max(1, data.page-2); i <= Math.min(data.pages, data.page+2); i++) {
+        html += `<li class="page-item ${i===data.page?'active':''}"><a class="page-link" href="#" onclick="goPage(${i}); return false;">${i}</a></li>`;
+    }
+    if (data.page < data.pages) html += `<li class="page-item"><a class="page-link" href="#" onclick="goPage(${data.page+1}); return false;">下一页</a></li>`;
+    links.innerHTML = html;
+}
+
+function goPage(p) { currentPage = p; loadData(); }
+
+async function showDetail(id) {
+    try {
+        const resp = await apiRequest(`/api/webhook-reviews/${id}?review_type=${currentType}`);
+        if (!resp) return;
+        const result = await resp.json();
+        if (!result.success) return;
+        const body = document.getElementById('reviewDetailBody');
+        if (typeof marked !== 'undefined') {
+            const markdown = result.data.review_result || '无审查结果';
+            const rawHtml = marked.parse(markdown);
+            if (typeof DOMPurify !== 'undefined') {
+                body.innerHTML = DOMPurify.sanitize(rawHtml, { USE_PROFILES: { html: true } });
+            } else {
+                body.textContent = markdown;
+            }
+        } else {
+            body.textContent = result.data.review_result || '无审查结果';
+        }
+        openModal('reviewDetailModal');
+    } catch (e) {
+        console.error('加载详情失败:', e);
+    }
+}
+
+async function deleteReview(id) {
+    if (!confirm('确定要删除这条审查记录吗？')) return;
+    try {
+        const resp = await fetch(`/api/webhook-reviews/${id}?review_type=${currentType}`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+        });
+        const result = await resp.json();
+        if (result.success) {
+            showNotification('删除成功', 'success');
+            loadData();
+            loadStats();
+        } else {
+            showNotification(result.message || '删除失败', 'error');
+        }
+    } catch (e) {
+        showNotification('删除失败: ' + e.message, 'error');
+    }
+}
+
+async function loadStats() {
+    const params = new URLSearchParams({ review_type: currentType });
+    const startDate = document.getElementById('filterStartDate').value;
+    const endDate = document.getElementById('filterEndDate').value;
+    if (startDate) params.set('start_date', startDate);
+    if (endDate) params.set('end_date', endDate);
+
+    try {
+        const resp = await apiRequest(`/api/webhook-reviews/stats?${params}`);
+        if (!resp) return;
+        const result = await resp.json();
+        if (!result.success) return;
+        const d = result.data;
+
+        document.getElementById('statTotal').textContent = d.total_count;
+        document.getElementById('statAvgScore').textContent = d.avg_score;
+        document.getElementById('statProjects').textContent = d.by_project.length;
+        document.getElementById('statAuthors').textContent = d.by_author.length;
+
+        renderCharts(d);
+    } catch (e) {
+        console.error('加载统计失败:', e);
+    }
+}
+
+function renderCharts(data) {
+    Object.values(charts).forEach(c => c.destroy());
+    charts = {};
+
+    const colors = ['#4e79a7','#f28e2b','#e15759','#76b7b2','#59a14f','#edc948','#b07aa1','#ff9da7','#9c755f','#bab0ac'];
+
+    charts.pc = new Chart(document.getElementById('projectCountChart'), {
+        type: 'bar',
+        data: {
+            labels: data.by_project.map(p => p.project_name),
+            datasets: [{ label: '提交数', data: data.by_project.map(p => p.count), backgroundColor: colors }]
+        },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+    });
+
+    charts.ps = new Chart(document.getElementById('projectScoreChart'), {
+        type: 'bar',
+        data: {
+            labels: data.by_project.map(p => p.project_name),
+            datasets: [{ label: '平均评分', data: data.by_project.map(p => p.avg_score), backgroundColor: colors }]
+        },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { max: 100 } } }
+    });
+
+    charts.ac = new Chart(document.getElementById('authorCountChart'), {
+        type: 'bar',
+        data: {
+            labels: data.by_author.map(a => a.author),
+            datasets: [{ label: '提交数', data: data.by_author.map(a => a.count), backgroundColor: colors }]
+        },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+    });
+
+    charts.as = new Chart(document.getElementById('authorScoreChart'), {
+        type: 'bar',
+        data: {
+            labels: data.by_author.map(a => a.author),
+            datasets: [{ label: '平均评分', data: data.by_author.map(a => a.avg_score), backgroundColor: colors }]
+        },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { max: 100 } } }
+    });
+}
+
+async function loadWebhookUrl() {
+    const spinner = document.getElementById('webhookUrlSpinner');
+    const ok = document.getElementById('webhookUrlOk');
+    const fail = document.getElementById('webhookUrlFail');
+    try {
+        const base = window.location.origin;
+        const webhookUrl = `${base}/review/webhook`;
+        document.getElementById('webhookUrlDisplay').value = webhookUrl;
+        spinner.style.display = 'none';
+        ok.style.display = 'inline-flex';
+    } catch (e) {
+        spinner.style.display = 'none';
+        fail.style.display = 'inline-flex';
+        console.error('获取 Webhook URL 失败:', e);
+    }
+}
+
+function copyWebhookUrl() {
+    const input = document.getElementById('webhookUrlDisplay');
+    input.select();
+    document.execCommand('copy');
+    showNotification('已复制到剪贴板', 'success');
+}
+
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', () => {
+    loadWebhookUrl();
+    loadData();
+    loadStats();
+});
+</script>
+{% endblock %}

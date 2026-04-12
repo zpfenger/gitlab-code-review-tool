@@ -1,0 +1,27 @@
+[Unit]
+Description=GitLab Code Review Tool
+After=network.target
+
+[Service]
+Type=simple
+User=gitlab-review
+Group=gitlab-review
+WorkingDirectory=/opt/gitlab-code-review-tool
+Environment="PATH=/opt/gitlab-code-review-tool/venv/bin"
+Environment="SECRET_KEY=your-secret-key-here"
+Environment="CONFIG_PATH=/opt/gitlab-code-review-tool/config/admin.yaml"
+ExecStart=/opt/gitlab-code-review-tool/venv/bin/python run.py --host 0.0.0.0 --port 7000 --workers 4
+Restart=always
+RestartSec=10
+
+# Logging
+StandardOutput=syslog
+StandardError=syslog
+SyslogIdentifier=gitlab-code-review
+
+# Security
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

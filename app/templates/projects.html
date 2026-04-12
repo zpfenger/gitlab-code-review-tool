@@ -1,0 +1,368 @@
+{% extends "base.html" %}
+
+{% block title %}项目管理 - 代码审查工具{% endblock %}
+
+{% block content %}
+<!-- Page Header -->
+<div class="page-header">
+    <div>
+        <h1 class="page-title">项目管理</h1>
+        <p class="page-subtitle">管理 GitLab 项目和审查配置</p>
+    </div>
+    {% if 'system_admin' in current_user_roles or 'project_admin' in current_user_roles %}
+    <button class="btn btn-primary" onclick="openCreateModal()">
+        <i class="bi bi-plus-lg"></i> 添加项目
+    </button>
+    {% endif %}
+</div>
+
+<!-- Project List -->
+{% if projects %}
+<div class="table-container">
+    <table class="table">
+        <thead>
+            <tr>
+                <th>项目名称</th>
+                <th>项目 ID</th>
+                <th>目标分支</th>
+                <th>状态</th>
+                <th>配置</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for project in projects %}
+            <tr>
+                <td>
+                    <strong>{{ project.name }}</strong>
+                    {% if project.description %}
+                    <br><small class="text-muted">{{ project.description }}</small>
+                    {% endif %}
+                </td>
+                <td><code>{{ project.project_id }}</code></td>
+                <td><code style="font-size: var(--text-xs);">{{ project.target_branches or '所有分支' }}</code></td>
+                <td>
+                    {% if project.is_active %}
+                    <span class="status">
+                        <span class="status-dot success"></span>
+                        活跃
+                    </span>
+                    {% else %}
+                    <span class="status">
+                        <span class="status-dot warning"></span>
+                        禁用
+                    </span>
+                    {% endif %}
+                </td>
+                <td>
+                    <div style="display: flex; gap: var(--space-3);">
+                        {% if project.svn_url %}
+                        <span class="badge badge-success" title="SVN 已配置">
+                            <i class="bi bi-cloud-upload"></i> SVN
+                        </span>
+                        {% endif %}
+                        {% if project.wecom_enabled %}
+                        <span class="badge badge-primary" title="企业微信已启用">
+                            <i class="bi bi-wechat"></i>
+                        </span>
+                        {% endif %}
+                    </div>
+                </td>
+                <td>
+                    <div class="btn-group">
+                        {% if 'system_admin' in current_user_roles or 'project_admin' in current_user_roles %}
+                        <button class="btn btn-secondary btn-icon" onclick="openEditModal({{ project.id }})" title="编辑">
+                            <i class="bi bi-pencil"></i>
+                        </button>
+                        <button class="btn btn-secondary btn-icon" onclick="testConnection({{ project.id }})" title="测试">
+                            <i class="bi bi-plug"></i>
+                        </button>
+                        {% endif %}
+                        {% if 'system_admin' in current_user_roles or 'project_admin' in current_user_roles %}
+                        <button class="btn btn-primary btn-icon" onclick="runTask({{ project.id }})" title="执行">
+                            <i class="bi bi-play-fill"></i>
+                        </button>
+                        {% endif %}
+                        {% if 'system_admin' in current_user_roles %}
+                        <button class="btn btn-danger btn-icon" onclick="deleteProject({{ project.id }})" title="删除">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                        {% endif %}
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="card">
+    <div class="card-body">
+        <div class="empty-state">
+            <i class="bi bi-folder-plus"></i>
+            <p>暂无项目，点击右上角按钮添加第一个项目</p>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Project Modal -->
+<div class="modal-overlay" id="projectModalBackdrop"></div>
+<div class="modal" id="projectModal" tabindex="-1" style="max-width: 720px;">
+    <div class="modal-header">
+        <h5 class="modal-title" id="projectModalTitle">添加项目</h5>
+    </div>
+    <form id="projectForm">
+        <div class="modal-body">
+            <input type="hidden" id="projectId" name="id">
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4);">
+                <div class="form-group">
+                    <label for="name" class="form-label">项目名称 *</label>
+                    <input type="text" class="form-input" id="name" name="name" required>
+                </div>
+                <div class="form-group">
+                    <label for="project_id" class="form-label">GitLab 项目 ID *</label>
+                    <input type="number" class="form-input" id="project_id" name="project_id" required>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="description" class="form-label">描述</label>
+                <textarea class="form-input" id="description" name="description" rows="2"></textarea>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4);">
+                <div class="form-group">
+                    <label for="target_branches" class="form-label">目标分支</label>
+                    <input type="text" class="form-input" id="target_branches" name="target_branches"
+                           placeholder="main,develop（留空=所有）">
+                    <small class="text-muted">多个分支用逗号分隔</small>
+                </div>
+                <div class="form-group">
+                    <label for="exclude_branches" class="form-label">排除分支</label>
+                    <input type="text" class="form-input" id="exclude_branches" name="exclude_branches"
+                           placeholder="feature/*,hotfix/*">
+                </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4);">
+                <div class="form-group">
+                    <label for="access_token" class="form-label">GitLab Token（可选）</label>
+                    <input type="password" class="form-input" id="access_token" name="access_token"
+                           placeholder="留空使用全局配置">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">状态</label>
+                    <div style="display: flex; align-items: center; gap: var(--space-3); padding-top: var(--space-2);">
+                        <input type="checkbox" id="is_active" name="is_active" checked style="width: 18px; height: 18px; accent-color: var(--color-primary);">
+                        <label for="is_active" style="margin: 0; font-weight: 500;">启用此项目</label>
+                    </div>
+                </div>
+            </div>
+
+            <hr style="margin: var(--space-5) 0;">
+
+            <div class="form-group">
+                <h6 style="margin-bottom: var(--space-3);">
+                    <i class="bi bi-cloud-upload"></i> SVN 配置（可选）
+                </h6>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4);">
+                    <div>
+                        <label for="svn_url" class="form-label">SVN URL</label>
+                        <input type="text" class="form-input" id="svn_url" name="svn_url"
+                               placeholder="https://svn.example.com/repo">
+                    </div>
+                    <div>
+                        <label for="svn_username" class="form-label">SVN 用户名</label>
+                        <input type="text" class="form-input" id="svn_username" name="svn_username">
+                    </div>
+                </div>
+                <div style="margin-top: var(--space-4);">
+                    <label for="svn_password" class="form-label">SVN 密码</label>
+                    <input type="password" class="form-input" id="svn_password" name="svn_password">
+                </div>
+            </div>
+
+            <hr style="margin: var(--space-5) 0;">
+
+            <div class="form-group" style="margin-bottom: 0;">
+                <h6 style="margin-bottom: var(--space-3);">
+                    <i class="bi bi-wechat"></i> 企业微信通知（可选）
+                </h6>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4);">
+                    <div>
+                        <div style="display: flex; align-items: center; gap: var(--space-3);">
+                            <input type="checkbox" id="wecom_enabled" name="wecom_enabled" style="width: 18px; height: 18px; accent-color: var(--color-primary);">
+                            <label for="wecom_enabled" style="margin: 0; font-weight: 500;">启用企业微信通知</label>
+                        </div>
+                        <small class="text-muted">开启后，该项目的审查结果将推送到指定企业微信群</small>
+                    </div>
+                    <div>
+                        <label for="wecom_webhook_url" class="form-label">Webhook URL</label>
+                        <div style="display: flex; gap: var(--space-2);">
+                            <input type="password" class="form-input" id="wecom_webhook_url"
+                                   name="wecom_webhook_url" placeholder="企业微信机器人 Webhook URL">
+                            <button class="btn btn-secondary" type="button"
+                                    onclick="testProjectNotify('wecom_webhook_url')">
+                                <i class="bi bi-send"></i> 测试
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="closeModal('projectModal')">取消</button>
+            <button type="submit" class="btn btn-primary">
+                <i class="bi bi-check-lg"></i> 保存
+            </button>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const projects = {{ projects | tojson | safe }};
+
+function openCreateModal() {
+    document.getElementById('projectModalTitle').textContent = '添加项目';
+    document.getElementById('projectForm').reset();
+    document.getElementById('projectId').value = '';
+    openModal('projectModal');
+}
+
+function openEditModal(id) {
+    const project = projects.find(p => p.id === id);
+    if (!project) return;
+
+    document.getElementById('projectModalTitle').textContent = '编辑项目';
+    document.getElementById('projectId').value = project.id;
+    document.getElementById('name').value = project.name;
+    document.getElementById('project_id').value = project.project_id;
+    document.getElementById('description').value = project.description || '';
+    document.getElementById('target_branches').value = project.target_branches || '';
+    document.getElementById('exclude_branches').value = project.exclude_branches || '';
+    document.getElementById('svn_url').value = project.svn_url || '';
+    document.getElementById('svn_username').value = project.svn_username || '';
+    document.getElementById('is_active').checked = !!project.is_active;
+    document.getElementById('wecom_enabled').checked = !!project.wecom_enabled;
+    document.getElementById('wecom_webhook_url').value = project.wecom_webhook_url || '';
+
+    openModal('projectModal');
+}
+
+document.getElementById('projectForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const formData = new FormData(this);
+    const id = formData.get('id');
+    const isEdit = !!id;
+
+    const data = {
+        name: formData.get('name'),
+        project_id: parseInt(formData.get('project_id')),
+        description: formData.get('description'),
+        target_branches: formData.get('target_branches'),
+        exclude_branches: formData.get('exclude_branches'),
+        access_token: formData.get('access_token') || null,
+        svn_url: formData.get('svn_url') || null,
+        svn_username: formData.get('svn_username') || null,
+        svn_password: formData.get('svn_password') || null,
+        wecom_enabled: formData.get('wecom_enabled') === 'on',
+        wecom_webhook_url: formData.get('wecom_webhook_url') || null,
+        is_active: formData.get('is_active') === 'on'
+    };
+
+    try {
+        const url = isEdit ? `/api/projects/${id}` : '/api/projects';
+        const method = isEdit ? 'PUT' : 'POST';
+        const response = await fetch(url, {
+            method,
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data)
+        });
+        const result = await response.json();
+        if (result.success || response.ok) {
+            location.reload();
+        } else {
+            alert('保存失败: ' + (result.message || JSON.stringify(result)));
+        }
+    } catch (e) {
+        alert('请求失败: ' + e.message);
+    }
+});
+
+async function testConnection(projectId) {
+    const btn = event.target.closest('button');
+    const origHTML = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+
+    try {
+        const response = await fetch(`/api/projects/${projectId}/test`, { method: 'POST' });
+        const result = await response.json();
+        showNotification(result.success ? '✅ ' + result.message : '❌ ' + (result.message || '连接失败'), result.success ? 'success' : 'error');
+    } catch (e) {
+        showNotification('请求失败: ' + e.message, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = origHTML;
+    }
+}
+
+async function deleteProject(id) {
+    if (!confirm('确定要删除此项目吗？此操作不可恢复。')) return;
+
+    try {
+        const response = await fetch(`/api/projects/${id}`, { method: 'DELETE' });
+        if (response.ok) {
+            location.reload();
+        } else {
+            showNotification('删除失败', 'error');
+        }
+    } catch (e) {
+        showNotification('请求失败: ' + e.message, 'error');
+    }
+}
+
+async function runTask(projectId) {
+    if (!confirm('确定要立即执行此项目的审查任务吗？')) return;
+
+    try {
+        const response = await fetch('/api/tasks/run', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ project_id: projectId })
+        });
+        const result = await response.json();
+        if (result.success) {
+            showNotification('任务已启动', 'success');
+        } else {
+            showNotification('启动失败: ' + (result.message || '未知错误'), 'error');
+        }
+    } catch (e) {
+        showNotification('请求失败: ' + e.message, 'error');
+    }
+}
+
+async function testProjectNotify(inputId) {
+    const url = document.getElementById(inputId).value;
+    if (!url) {
+        showNotification('请先输入 Webhook URL', 'warning');
+        return;
+    }
+    try {
+        const response = await fetch('/api/settings/test-notify', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ webhook_url: url, platform: 'wecom' })
+        });
+        const result = await response.json();
+        showNotification(result.success ? '✅ ' + result.message : '❌ ' + (result.message || '发送失败'), result.success ? 'success' : 'error');
+    } catch (e) {
+        showNotification('请求失败: ' + e.message, 'error');
+    }
+}
+</script>
+{% endblock %}
