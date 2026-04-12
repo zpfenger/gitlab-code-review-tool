@@ -42,7 +42,7 @@ REPORT_DIR = DATA_DIR / 'reports'
 SECRET_KEY = os.environ.get('SECRET_KEY', security_service.secret_key)
 
 # Global scheduler instance
-scheduler: ReviewScheduler | None = None
+scheduler: Optional[ReviewScheduler] = None
 
 
 @asynccontextmanager

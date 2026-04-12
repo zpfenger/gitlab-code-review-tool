@@ -1,6 +1,7 @@
 """Webhook 事件处理 Worker — 后台异步处理 GitLab Webhook 事件"""
 import traceback
 from datetime import datetime
+from typing import Optional
 
 from loguru import logger
 
@@ -45,12 +46,12 @@ def _build_reviewer(settings: Settings) -> WebhookReviewer:
     )
 
 
-def _build_notifier(settings: Settings, project: Project | None = None) -> Notifier:
+def _build_notifier(settings: Settings, project: Optional[Project] = None) -> Notifier:
     """构建 Notifier 实例：优先项目级配置，回退全局配置"""
     return Notifier.from_project(project, settings)
 
 
-def _resolve_project_for_webhook(db, webhook_data: dict) -> Project | None:
+def _resolve_project_for_webhook(db, webhook_data: dict) -> Optional[Project]:
     """根据 webhook 项目信息解析本地 Project，优先 project_id，其次 path_with_namespace，最后 name。"""
     if not webhook_data:
         return None
@@ -60,7 +61,7 @@ def _resolve_project_for_webhook(db, webhook_data: dict) -> Project | None:
     if raw_project_id is None:
         raw_project_id = webhook_data.get("project_id")
 
-    webhook_project_id: int | None = None
+    webhook_project_id: Optional[int] = None
     if raw_project_id is not None:
         try:
             webhook_project_id = int(raw_project_id)
@@ -93,7 +94,7 @@ def handle_merge_request_event(
 ):
     """处理 GitLab Merge Request 事件（在后台线程中运行）"""
     db = SessionLocal()
-    project: Project | None = None
+    project: Optional[Project] = None
     try:
         settings = db.query(Settings).first()
         if not settings:
@@ -265,7 +266,7 @@ def handle_merge_request_event(
 def handle_push_event(webhook_data: dict, gitlab_token: str, gitlab_url: str):
     """处理 GitLab Push 事件（在后台线程中运行）"""
     db = SessionLocal()
-    project: Project | None = None
+    project: Optional[Project] = None
     try:
         settings = db.query(Settings).first()
         if not settings:

@@ -1,7 +1,7 @@
 """
 角色管理 API
 """
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from pydantic import BaseModel
@@ -17,7 +17,7 @@ router = APIRouter(prefix="/api/roles", tags=["roles"])
 class RoleResponse(BaseModel):
     id: int
     name: str
-    description: str | None
+    description: Optional[str]
     is_system_role: bool
     user_count: int = 0
 
@@ -25,7 +25,7 @@ class RoleResponse(BaseModel):
 class RoleDetailResponse(BaseModel):
     id: int
     name: str
-    description: str | None
+    description: Optional[str]
     is_system_role: bool
     users: List[dict]
     created_at: str

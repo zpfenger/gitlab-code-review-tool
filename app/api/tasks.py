@@ -1,5 +1,6 @@
 # app/api/tasks.py
 import json
+from typing import Optional
 from fastapi import APIRouter, Depends, BackgroundTasks, HTTPException
 from sqlalchemy.orm import Session
 from datetime import datetime, date, timedelta
@@ -156,10 +157,10 @@ async def run_all(
 
 
 async def _run_review_task(
-    project_id: int | None,
+    project_id: Optional[int],
     task_type: str,
     user: str,
-    user_id: int | None = None
+    user_id: Optional[int] = None
 ):
     """Background task for running code review - 实际执行代码审查任务"""
     global _task_progress
