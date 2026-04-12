@@ -10,7 +10,7 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
 # Default values
 HOST="${HOST:-0.0.0.0}"
-PORT="${PORT:-7000}"
+PORT="${PORT:-5001}"
 WORKERS="${WORKERS:-4}"
 LOG_LEVEL="${LOG_LEVEL:-info}"
 

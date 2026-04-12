@@ -23,7 +23,7 @@ logger.add(sys.stderr, level="INFO", format="<green>{time:YYYY-MM-DD HH:mm:ss}</
 def main():
     parser = argparse.ArgumentParser(description="GitLab Code Review Tool")
     parser.add_argument("--host", default="0.0.0.0", help="Host to bind to")
-    parser.add_argument("--port", type=int, default=7000, help="Port to bind to")
+    parser.add_argument("--port", type=int, default=5001, help="Port to bind to")
     parser.add_argument("--reload", action="store_true", help="Enable auto-reload for development")
     parser.add_argument("--workers", type=int, default=1, help="Number of worker processes")
     parser.add_argument("--log-level", default="info", choices=["debug", "info", "warning", "error"], help="Log level")

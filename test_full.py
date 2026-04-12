@@ -1,7 +1,7 @@
 import requests
 import json
 
-BASE = 'http://127.0.0.1:7000'
+BASE = 'http://127.0.0.1:5001'
 s = requests.Session()
 
 # 登录

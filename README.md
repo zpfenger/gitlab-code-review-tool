@@ -59,7 +59,7 @@ pip install -r requirements.txt
 ### 2) 启动服务
 
 ```bash
-uvicorn app.main:app --host 0.0.0.0 --port 7000 --reload
+uvicorn app.main:app --host 0.0.0.0 --port 5001 --reload
 ```
 
 ### 3) 访问页面

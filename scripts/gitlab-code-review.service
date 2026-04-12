@@ -10,7 +10,7 @@ WorkingDirectory=/opt/gitlab-code-review-tool
 Environment="PATH=/opt/gitlab-code-review-tool/venv/bin"
 Environment="SECRET_KEY=your-secret-key-here"
 Environment="CONFIG_PATH=/opt/gitlab-code-review-tool/config/admin.yaml"
-ExecStart=/opt/gitlab-code-review-tool/venv/bin/python run.py --host 0.0.0.0 --port 7000 --workers 4
+ExecStart=/opt/gitlab-code-review-tool/venv/bin/python run.py --host 0.0.0.0 --port 5001 --workers 4
 Restart=always
 RestartSec=10
 

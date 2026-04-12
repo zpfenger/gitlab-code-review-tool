@@ -1,5 +1,5 @@
 import requests
-BASE = 'http://127.0.0.1:7000'
+BASE = 'http://127.0.0.1:5001'
 s = requests.Session()
 r = s.post(f'{BASE}/api/auth/login', json={'username':'admin','password':'admin123'})
 print('Login:', r.status_code)
