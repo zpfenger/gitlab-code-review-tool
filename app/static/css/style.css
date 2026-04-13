@@ -548,6 +548,7 @@ body {
 .badge-success { background: #ecfdf5; color: var(--color-success); }
 .badge-warning { background: #fffbeb; color: var(--color-warning); }
 .badge-error { background: #fef2f2; color: var(--color-error); }
+.badge-info { background: #e0f2fe; color: var(--color-info); }
 .badge-gray { background: var(--color-slate-100); color: var(--color-slate-600); }
 
 /* ============================================
@@ -1069,7 +1070,7 @@ code {
 }
 
 .table .col-actions {
-    width: 140px;
+    width: 175px;
     min-width: 140px;
     text-align: center;
     white-space: nowrap;
