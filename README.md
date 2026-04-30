@@ -115,6 +115,107 @@ uvicorn app.main:app --host 0.0.0.0 --port 5001 --reload
 
 ---
 
+## Linux systemd 服务部署
+
+以下命令适用于基于 systemd 的 Linux 发行版（如 Ubuntu、CentOS、Debian 等）。
+
+### 1) 前提条件
+
+```bash
+# 创建专用用户（可选但推荐）
+sudo useradd -r -s /bin/false gitlab-review || true
+
+# 创建安装目录
+sudo mkdir -p /opt/gitlab-code-review-tool
+sudo chown gitlab-review:gitlab-review /opt/gitlab-code-review-tool
+```
+
+### 2) 部署文件
+
+将项目文件复制到安装目录：
+
+```bash
+# 方式一：使用 git clone
+sudo git clone <your-repo-url> /opt/gitlab-code-review-tool
+
+# 方式二：手动复制（从打包文件解压）
+sudo tar -xzf gitlab-code-review-tool.tar.gz -C /opt/
+
+# 设置权限
+sudo chown -R gitlab-review:gitlab-review /opt/gitlab-code-review-tool
+
+# 安装依赖（使用项目虚拟环境）
+sudo -u gitlab-review /opt/gitlab-code-review-tool/venv/bin/pip install -r /opt/gitlab-code-review-tool/requirements.txt
+```
+
+### 3) 安装服务
+
+```bash
+# 复制服务文件到 systemd 目录
+sudo cp /opt/gitlab-code-review-tool/scripts/gitlab-code-review.service /etc/systemd/system/
+
+# 编辑服务配置（修改 SECRET_KEY 等环境变量）
+sudo nano /etc/systemd/system/gitlab-code-review.service
+
+# 重载 systemd 配置
+sudo systemctl daemon-reload
+```
+
+> **注意**：编辑 `/etc/systemd/system/gitlab-code-review.service` 时，请根据实际环境修改：
+> - `SECRET_KEY`：设置安全的随机密钥
+> - `CONFIG_PATH`：配置文件路径
+> - `User`/`Group`：运行用户（默认 `gitlab-review`）
+
+### 4) 服务管理命令
+
+```bash
+# 启动服务
+sudo systemctl start gitlab-code-review
+
+# 停止服务
+sudo systemctl stop gitlab-code-review
+
+# 重启服务
+sudo systemctl restart gitlab-code-review
+
+# 重新加载配置（不中断连接）
+sudo systemctl reload gitlab-code-review
+
+# 设置开机自启
+sudo systemctl enable gitlab-code-review
+
+# 取消开机自启
+sudo systemctl disable gitlab-code-review
+
+# 查看服务状态
+sudo systemctl status gitlab-code-review
+
+# 检查服务是否正在运行
+sudo systemctl is-active gitlab-code-review
+
+# 检查服务是否设置开机自启
+sudo systemctl is-enabled gitlab-code-review
+```
+
+### 5) 常用操作示例
+
+```bash
+# 完整部署并启动流程
+sudo cp scripts/gitlab-code-review.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now gitlab-code-review   # 启用并立即启动
+
+# 修改配置后平滑重启
+sudo systemctl edit gitlab-code-review --full    # 编辑配置
+sudo systemctl daemon-reload
+sudo systemctl restart gitlab-code-review
+
+# 排查问题时实时查看日志
+sudo journalctl -u gitlab-code-review -f --no-pager
+```
+
+---
+
 ## 查看日志
 
 本系统提供两种日志查看方式：
