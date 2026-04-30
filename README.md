@@ -115,6 +115,94 @@ uvicorn app.main:app --host 0.0.0.0 --port 5001 --reload
 
 ---
 
+## 查看日志
+
+本系统提供两种日志查看方式：
+
+### 1. 系统运行日志（应用层）
+
+记录应用运行时的所有活动，包括启动信息、调度状态、任务执行、错误追踪等。
+
+| 属性 | 说明 |
+|------|------|
+| 位置 | `data/logs/app.log` |
+| 级别 | DEBUG（文件）/ INFO（控制台） |
+| 轮转 | 10 MB 自动轮转 |
+| 保留 | 30 天 |
+
+**查看方式：**
+
+```bash
+# 方式一：命令行实时查看（Linux/macOS）
+tail -f data/logs/app.log
+
+# 方式二：查看完整日志（支持按关键字过滤）
+grep "ERROR" data/logs/app.log
+
+# 方式三：查看最近 100 行
+tail -n 100 data/logs/app.log
+
+# 方式四：Windows PowerShell
+Get-Content data/logs/app.log -Tail 100 -Wait
+```
+
+### 2. 任务执行日志（数据库）
+
+记录每次审查任务的执行详情，包含状态、时间、统计信息、错误信息等。
+
+| 查看方式 | 路径 | 说明 |
+|----------|------|------|
+| Web 页面 | `/logs` | 任务日志页面，支持筛选和分页 |
+| API | `GET /api/logs` | 支持 `project_id`、`status`、`start_date`、`end_date` 等参数筛选 |
+| API 详情 | `GET /api/logs/{log_id}` | 查看单条任务日志的详细信息 |
+
+**API 查询示例：**
+
+```bash
+# 查询指定项目的任务日志
+curl "http://localhost:5001/api/logs?project_id=1"
+
+# 查询失败的任务
+curl "http://localhost:5001/api/logs?status=failed"
+
+# 查询指定日期范围
+curl "http://localhost:5001/api/logs?start_date=2026-04-01&end_date=2026-04-27"
+```
+
+### 3. systemd 服务日志（Linux 部署）
+
+当以 systemd 服务方式运行时，使用 `journalctl` 查看系统日志：
+
+```bash
+# 查看服务状态
+sudo systemctl status gitlab-code-review
+
+# 实时查看服务日志
+sudo journalctl -u gitlab-code-review -f
+
+# 查看最近 200 行
+sudo journalctl -u gitlab-code-review -n 200
+
+# 仅查看错误级别日志
+sudo journalctl -u gitlab-code-review -p err
+
+# 按时间范围查看
+sudo journalctl -u gitlab-code-review --since today          # 今天
+sudo journalctl -u gitlab-code-review --since yesterday      # 昨天至今
+sudo journalctl -u gitlab-code-review --since "-1 hour"      # 最近 1 小时
+```
+
+| 参数 | 说明 |
+|------|------|
+| `-f` | 实时跟踪（类似 tail -f） |
+| `-n 100` | 显示最近 100 行 |
+| `-p err` | 仅错误级别 |
+| `--since today` | 今天以来的日志 |
+| `-b` | 本次启动以来的日志 |
+| `--no-pager` | 不分页，直接输出 |
+
+---
+
 ## 主要接口
 
 ### 认证

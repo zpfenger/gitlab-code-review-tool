@@ -16,9 +16,9 @@ class Settings(BaseModel):
     llm_model = Column(String(100), nullable=False, default="", comment="模型名称")
     llm_max_tokens = Column(Integer, default=4096, comment="最大 Token 数")
     llm_temperature = Column(String(10), default="0.7", comment="Temperature")
-    llm_timeout = Column(Integer, default=120, comment="LLM 调用超时时间（秒）")
-    llm_max_retries = Column(Integer, default=3, comment="最大重试次数")
-    llm_retry_delay = Column(Integer, default=5, comment="重试间隔（秒）")
+    llm_timeout = Column(Integer, default=240, comment="LLM 调用超时时间（秒）")
+    llm_max_retries = Column(Integer, default=5, comment="最大重试次数")
+    llm_retry_delay = Column(Integer, default=60, comment="重试间隔（秒）")
 
     # 提示词配置
     review_prompt_template = Column(Text, nullable=True, comment="代码审查提示词模板")
