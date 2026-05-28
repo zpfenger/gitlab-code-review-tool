@@ -30,7 +30,7 @@ from app.services.task_executor import TaskExecutor
 
 # Import API routers
 from app.api import auth, projects, settings as settings_api, tasks, logs, reports
-from app.api import webhook, webhook_reviews, users, roles
+from app.api import webhook, webhook_reviews, users, roles, efficiency
 from app.api.projects import _filter_projects_by_permission
 
 # Configuration
@@ -154,6 +154,7 @@ app.include_router(webhook.router)
 app.include_router(webhook_reviews.router)
 app.include_router(users.router)
 app.include_router(roles.router)
+app.include_router(efficiency.router)
 
 
 # Template context processor
