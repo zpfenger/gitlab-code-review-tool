@@ -841,6 +841,57 @@ def run_scheduled_task(task_type: str = 'daily'):
                 task_log.end_time = datetime.now()
                 db.commit()
 
+        # 日报跑完后顺便聚合人员能效（仅 daily 任务）
+        if task_type == 'daily':
+            try:
+                from datetime import date as _date, timedelta as _td
+                from app.services.efficiency_aggregator import EfficiencyAggregator
+                from app.services.gitlab_client import GitLabClient as _GLC
+
+                target_efficiency_date = _date.today() - _td(days=1)
+
+                def _client_factory(proj):
+                    """根据项目解 token，构造 GitLabClient"""
+                    tk = None
+                    if proj.access_token:
+                        try:
+                            tk = security_service.decrypt(proj.access_token)
+                        except ValueError:
+                            tk = None
+                    if not tk and settings.global_gitlab_token:
+                        try:
+                            tk = security_service.decrypt(settings.global_gitlab_token)
+                        except ValueError:
+                            tk = None
+                    if not tk:
+                        raise RuntimeError(f"项目 {proj.name} 无可用 Token")
+                    return _GLC(gitlab_url=settings.global_gitlab_url,
+                                 access_token=tk)
+
+                llm_cfg = {
+                    "api_url": settings.llm_api_url,
+                    "api_key": (security_service.decrypt(settings.llm_api_key)
+                                if settings.llm_api_key else ""),
+                    "model": settings.llm_model,
+                    "timeout": settings.llm_timeout,
+                    "max_retries": settings.llm_max_retries,
+                    "retry_delay": settings.llm_retry_delay,
+                }
+
+                top_n = getattr(settings, "efficiency_work_summary_top_n", 5) or 5
+
+                aggregator = EfficiencyAggregator(
+                    db=db,
+                    gitlab_client_factory=_client_factory,
+                    llm_config=llm_cfg,
+                    top_n=top_n,
+                )
+                agg_result = aggregator.aggregate(target_efficiency_date)
+                logger.info(f"人员能效聚合: {agg_result}")
+            except Exception as e:
+                # 聚合失败不影响日报本身
+                logger.exception(f"人员能效聚合失败: {e}")
+
     finally:
         db.close()
 
