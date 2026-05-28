@@ -83,11 +83,14 @@ _REVIEW_SUMMARY_PATTERN = re.compile(r"##\s*评分简述.*?\n(.+?)(?=\n##|\Z)", 
 
 
 def parse_score(text: str) -> int:
-    """从 LLM 输出中解析总分（0 表示未识别）"""
+    """从 LLM 输出中解析总分（0 表示未识别或超出 0-100 范围）"""
     if not text:
         return 0
     match = _SCORE_PATTERN.search(text)
-    return int(match.group(1)) if match else 0
+    if not match:
+        return 0
+    score = int(match.group(1))
+    return score if 0 <= score <= 100 else 0
 
 
 def parse_work_summary(text: str, top_n: int = 5) -> List[str]:
@@ -201,6 +204,9 @@ def call_llm(
             logger.warning(f"LLM 请求超时 (尝试 {attempt + 1}/{max_retries})")
             if attempt < max_retries - 1:
                 time.sleep(retry_delay)
+        except httpx.HTTPStatusError as e:
+            logger.error(f"LLM 请求失败: {e.response.status_code}")
+            return None
         except Exception as e:
             logger.error(f"LLM 请求异常: {type(e).__name__}: {e}")
             return None

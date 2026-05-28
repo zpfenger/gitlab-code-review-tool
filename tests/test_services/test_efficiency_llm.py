@@ -1,7 +1,9 @@
 """efficiency_llm 测试 — 解析 LLM 输出"""
+from unittest.mock import patch
+
 from app.services.efficiency_llm import (
     parse_score, parse_work_summary, parse_review_summary,
-    map_score_to_grade, build_user_prompt,
+    map_score_to_grade, build_user_prompt, call_and_parse,
 )
 
 
@@ -22,6 +24,10 @@ def test_parse_score_missing_returns_zero():
 
 def test_parse_score_empty():
     assert parse_score("") == 0
+
+
+def test_parse_score_rejects_out_of_range():
+    assert parse_score("总分：999 分") == 0
 
 
 # ── 等级映射 ─────────────────────────────────────
@@ -123,3 +129,40 @@ def test_build_user_prompt_contains_inputs():
     assert "feat: add login" in prompt
     assert "+code line" in prompt
     assert "5" in prompt
+
+
+# ── call_and_parse 集成 ──────────────────────────
+def test_call_and_parse_returns_failure_dict_when_llm_none():
+    with patch("app.services.efficiency_llm.call_llm", return_value=None):
+        result = call_and_parse(
+            api_url="x", api_key="x", model="m",
+            author_name="A", commits_text="", diffs_text="",
+        )
+    assert result["success"] is False
+    assert result["score"] == 0
+    assert result["grade"] is None
+    assert result["work_summary"] == []
+    assert result["review_summary"] == ""
+    assert result["raw"] is None
+
+
+def test_call_and_parse_returns_parsed_fields_on_success():
+    fake_raw = """## 评分简述
+代码质量优秀。
+
+## 主要工作（不超过 5 条）
+1. 实现 A
+2. 修复 B
+
+## 总分：92 分
+"""
+    with patch("app.services.efficiency_llm.call_llm", return_value=fake_raw):
+        result = call_and_parse(
+            api_url="x", api_key="x", model="m",
+            author_name="A", commits_text="x", diffs_text="x",
+        )
+    assert result["success"] is True
+    assert result["score"] == 92
+    assert result["grade"] == "优秀"
+    assert result["work_summary"] == ["实现 A", "修复 B"]
+    assert "代码质量优秀" in result["review_summary"]
