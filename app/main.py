@@ -612,6 +612,19 @@ async def webhook_reviews_page(request: Request):
     )
 
 
+@app.get("/efficiency", response_class=HTMLResponse)
+async def efficiency_page(request: Request):
+    """人员能效页面"""
+    user = request.session.get("user")
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    return templates.TemplateResponse(
+        request,
+        "efficiency.html",
+        get_template_context(request),
+    )
+
+
 @app.get("/users", response_class=HTMLResponse)
 async def users_page(request: Request):
     """账号管理页面 - 仅系统管理员可访问"""
