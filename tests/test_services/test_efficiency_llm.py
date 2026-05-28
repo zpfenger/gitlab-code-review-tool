@@ -1,0 +1,125 @@
+"""efficiency_llm 测试 — 解析 LLM 输出"""
+from app.services.efficiency_llm import (
+    parse_score, parse_work_summary, parse_review_summary,
+    map_score_to_grade, build_user_prompt,
+)
+
+
+# ── 评分解析 ─────────────────────────────────────
+def test_parse_score_with_full_text():
+    text = "评分明细：xxx\n\n## 总分：85 分"
+    assert parse_score(text) == 85
+
+
+def test_parse_score_handles_chinese_colon():
+    text = "总分：73分"
+    assert parse_score(text) == 73
+
+
+def test_parse_score_missing_returns_zero():
+    assert parse_score("没有评分相关内容") == 0
+
+
+def test_parse_score_empty():
+    assert parse_score("") == 0
+
+
+# ── 等级映射 ─────────────────────────────────────
+def test_map_score_excellent():
+    assert map_score_to_grade(95) == "优秀"
+    assert map_score_to_grade(90) == "优秀"
+
+
+def test_map_score_good():
+    assert map_score_to_grade(89) == "良好"
+    assert map_score_to_grade(75) == "良好"
+
+
+def test_map_score_average():
+    assert map_score_to_grade(74) == "一般"
+    assert map_score_to_grade(60) == "一般"
+
+
+def test_map_score_poor():
+    assert map_score_to_grade(59) == "待改进"
+    assert map_score_to_grade(0) == "待改进"
+
+
+def test_map_score_none_returns_none():
+    assert map_score_to_grade(None) is None
+
+
+# ── 工作总结解析 ─────────────────────────────────
+def test_parse_work_summary_extracts_list():
+    text = """## 主要工作（不超过 5 条）
+1. 实现登录功能
+2. 修复购物车 bug
+3. 重构订单服务
+4. 补充单元测试
+5. 优化慢查询
+
+## 总分：85 分"""
+    items = parse_work_summary(text)
+    assert items == [
+        "实现登录功能",
+        "修复购物车 bug",
+        "重构订单服务",
+        "补充单元测试",
+        "优化慢查询",
+    ]
+
+
+def test_parse_work_summary_dash_bullets():
+    text = """## 主要工作
+- 实现 A
+- 修复 B"""
+    items = parse_work_summary(text)
+    assert items == ["实现 A", "修复 B"]
+
+
+def test_parse_work_summary_caps_at_top_n():
+    text = """## 主要工作
+1. a
+2. b
+3. c
+4. d
+5. e
+6. f
+7. g"""
+    items = parse_work_summary(text, top_n=3)
+    assert items == ["a", "b", "c"]
+
+
+def test_parse_work_summary_missing_returns_empty():
+    assert parse_work_summary("没有这一块") == []
+
+
+# ── 评分简述提取 ─────────────────────────────────
+def test_parse_review_summary_takes_first_paragraph():
+    text = """## 评分简述
+代码质量良好，注释清晰，但存在 N+1 查询问题。
+
+## 评分明细
+..."""
+    s = parse_review_summary(text)
+    assert "代码质量良好" in s
+
+
+def test_parse_review_summary_fallback_truncates():
+    text = "x" * 500
+    s = parse_review_summary(text)
+    assert len(s) <= 200
+
+
+# ── prompt 构造 ──────────────────────────────────
+def test_build_user_prompt_contains_inputs():
+    prompt = build_user_prompt(
+        author_name="张三",
+        commits_text="feat: add login\nfix: bug",
+        diffs_text="+code line",
+        top_n=5,
+    )
+    assert "张三" in prompt
+    assert "feat: add login" in prompt
+    assert "+code line" in prompt
+    assert "5" in prompt
