@@ -1,9 +1,10 @@
 # app/services/stats_generator.py
 """代码统计服务"""
-import re
 from typing import List, Dict, Any
 from collections import defaultdict
 from loguru import logger
+
+from app.services.diff_utils import ADDITION_PATTERN, DELETION_PATTERN
 
 
 class StatsGenerator:
@@ -11,9 +12,9 @@ class StatsGenerator:
 
     def __init__(self):
         """初始化统计生成器"""
-        # 匹配 diff 中的行变化
-        self.addition_pattern = re.compile(r'^\+(?!\+\+|\-\-)', re.MULTILINE)
-        self.deletion_pattern = re.compile(r'^\-(?!\+\+|\-\-)', re.MULTILINE)
+        # 复用 diff_utils 中的共享正则，避免重复定义
+        self.addition_pattern = ADDITION_PATTERN
+        self.deletion_pattern = DELETION_PATTERN
 
     def calculate_diff_stats(
         self,

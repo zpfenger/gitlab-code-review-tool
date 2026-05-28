@@ -10,29 +10,16 @@
 """
 from __future__ import annotations
 import json
-import re
 from datetime import date, datetime
-from typing import Callable, Dict, List, Optional, Set, Any
+from typing import Callable, Dict, Set, Any
 
 from loguru import logger
 from sqlalchemy.orm import Session
 
 from app.models.employee_efficiency import EmployeeEfficiencyDaily
 from app.models.project import Project
-from app.services.efficiency_llm import call_and_parse, map_score_to_grade
-
-
-# 解析 diff 的 +/- 行数（与 stats_generator 一致逻辑）
-_ADD_RE = re.compile(r"^\+(?!\+\+|\-\-)", re.MULTILINE)
-_DEL_RE = re.compile(r"^\-(?!\+\+|\-\-)", re.MULTILINE)
-
-
-def _count_diff_lines(diff_text: str) -> tuple[int, int]:
-    """返回 (additions, deletions)"""
-    return (
-        len(_ADD_RE.findall(diff_text)),
-        len(_DEL_RE.findall(diff_text)),
-    )
+from app.services.diff_utils import count_diff_lines
+from app.services.efficiency_llm import call_and_parse
 
 
 class EfficiencyAggregator:
@@ -164,7 +151,7 @@ class EfficiencyAggregator:
                     diffs = []
                 for d in diffs:
                     diff_text = d.get("diff", "")
-                    adds, dels = _count_diff_lines(diff_text)
+                    adds, dels = count_diff_lines(diff_text)
                     bucket["additions"] += adds
                     bucket["deletions"] += dels
                     path = d.get("new_path") or d.get("old_path") or "unknown"
