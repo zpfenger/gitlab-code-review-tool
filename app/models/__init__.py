@@ -6,6 +6,7 @@ from app.models.commit_record import CommitRecord
 from app.models.webhook_review import MrReviewLog, PushReviewLog
 from app.models.user import User, Role, user_roles, project_admins, project_members
 from app.models.employee_efficiency import EmployeeEfficiencyDaily
+from app.models.employee_efficiency_monthly import EmployeeEfficiencyMonthly
 
 __all__ = [
     'BaseModel', 'TimestampMixin',
@@ -13,4 +14,5 @@ __all__ = [
     'MrReviewLog', 'PushReviewLog',
     'User', 'Role', 'user_roles', 'project_admins', 'project_members',
     'EmployeeEfficiencyDaily',
+    'EmployeeEfficiencyMonthly',
 ]
