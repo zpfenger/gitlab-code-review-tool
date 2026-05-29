@@ -76,7 +76,8 @@ def map_score_to_grade(score: Optional[int]) -> Optional[str]:
 
 
 # ── 解析函数 ──────────────────────────────────────────
-_SCORE_PATTERN = re.compile(r"总分[:：]\s*(\d+)\s*分?")
+# 支持多种格式：总分：85分、总分: 85 分、总分85分、总得分：85分
+_SCORE_PATTERN = re.compile(r"总[得]?分[:：]?\s*(\d+)\s*分?")
 _WORK_HEADER_PATTERN = re.compile(r"##\s*主要工作.*?\n(.+?)(?=\n##|\Z)", re.DOTALL)
 _WORK_ITEM_PATTERN = re.compile(r"^\s*(?:\d+[.、)]|\-|\*)\s*(.+?)\s*$", re.MULTILINE)
 _REVIEW_SUMMARY_PATTERN = re.compile(r"##\s*评分简述.*?\n(.+?)(?=\n##|\Z)", re.DOTALL)
@@ -88,6 +89,8 @@ def parse_score(text: str) -> int:
         return 0
     match = _SCORE_PATTERN.search(text)
     if not match:
+        # 记录无法解析的情况，便于调试
+        logger.warning(f"无法从 LLM 输出中解析总分，原始内容末 200 字: ...{text[-200:]}")
         return 0
     score = int(match.group(1))
     return score if 0 <= score <= 100 else 0
@@ -249,7 +252,14 @@ def call_and_parse(
             "work_summary": [], "review_summary": "",
             "success": False,
         }
+
+    # 记录 LLM 原始输出，便于调试解析问题
+    logger.debug(f"LLM 原始输出 [{author_name}]: {raw[:500]}...")
+
     score = parse_score(raw)
+    if score == 0:
+        logger.warning(f"评分解析失败 [{author_name}]，LLM 输出可能格式不符")
+
     return {
         "raw": raw,
         "score": score,
