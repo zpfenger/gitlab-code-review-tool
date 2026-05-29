@@ -3,32 +3,32 @@
 
 {% block extra_css %}
 <style>
-    .grade-badge { display:inline-block; padding:2px 10px; border-radius:10px;
-                   font-size:12px; color:#fff; font-weight:500; }
-    .grade-excellent { background:#28a745; }
-    .grade-good { background:#0d6efd; }
-    .grade-average { background:#ffc107; color:#333; }
-    .grade-poor { background:#dc3545; }
-    .grade-none { background:#999; }
+    .grade-badge { display:inline-block; padding: var(--space-1) var(--space-3); border-radius: var(--radius-full);
+                   font-size: var(--text-xs); color: #fff; font-weight: 500; }
+    .grade-excellent { background: var(--color-success); }
+    .grade-good { background: var(--color-primary); }
+    .grade-average { background: var(--color-warning); color: var(--color-slate-800); }
+    .grade-poor { background: var(--color-error); }
+    .grade-none { background: var(--color-slate-400); }
 
-    .efficiency-table th { cursor:pointer; user-select:none; }
-    .efficiency-table th .sort-icon { opacity:0.3; }
-    .efficiency-table th.sorted .sort-icon { opacity:1; }
-    .efficiency-table tbody tr { cursor:pointer; }
-    .efficiency-table tbody tr:hover { background:#f9fafb; }
+    .efficiency-table th { cursor: pointer; user-select: none; }
+    .efficiency-table th .sort-icon { opacity: 0.3; }
+    .efficiency-table th.sorted .sort-icon { opacity: 1; }
+    .efficiency-table tbody tr { cursor: pointer; }
+    .efficiency-table tbody tr:hover { background: var(--color-slate-50); }
 
-    .drawer { position:fixed; top:0; right:-560px; width:560px; height:100vh;
-              background:#fff; box-shadow:-4px 0 16px rgba(0,0,0,0.08);
-              transition:right 0.25s; overflow-y:auto; z-index:1050; }
-    .drawer.active { right:0; }
-    .drawer-header { padding:16px 20px; border-bottom:1px solid #eee;
-                      display:flex; justify-content:space-between; align-items:center; }
-    .drawer-body { padding:20px; }
-    .drawer-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.25);
-                       z-index:1040; display:none; }
-    .drawer-overlay.active { display:block; }
+    .drawer { position: fixed; top: 0; right: -560px; width: 560px; height: 100vh;
+              background: var(--color-white); box-shadow: -4px 0 16px rgba(0,0,0,0.08);
+              transition: right 0.25s; overflow-y: auto; z-index: 1050; }
+    .drawer.active { right: 0; }
+    .drawer-header { padding: var(--space-4) var(--space-5); border-bottom: 1px solid var(--color-slate-200);
+                      display: flex; justify-content: space-between; align-items: center; }
+    .drawer-body { padding: var(--space-5); }
+    .drawer-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.25);
+                       z-index: 1040; display: none; }
+    .drawer-overlay.active { display: block; }
 
-    #chartCodeTop, #chartGradePie, #chartTrend { width:100%; height:280px; }
+    #chartCodeTop, #chartGradePie, #chartTrend { width: 100%; height: 280px; }
 </style>
 {% endblock %}
 
@@ -36,42 +36,42 @@
 <!-- Page Header -->
 <div class="page-header">
     <div>
-        <h1 class="page-title"><i class="bi bi-graph-up-arrow me-2"></i>人员能效</h1>
+        <h1 class="page-title">人员能效</h1>
         <p class="page-subtitle">按人员维度查看每日代码提交量、AI 评分与工作总结</p>
     </div>
-    <div class="d-flex gap-2">
-        <input type="date" id="filterDate" class="form-control form-control-sm" />
-        <button class="btn btn-sm btn-outline-secondary" id="btnRefresh">
+    <div style="display: flex; gap: var(--space-2); align-items: center;">
+        <input type="date" id="filterDate" class="form-input" style="width: auto;" />
+        <button class="btn btn-secondary" id="btnRefresh">
             <i class="bi bi-arrow-clockwise"></i> 刷新
         </button>
         <!-- 仅管理员可见，由 efficiency.js 控制显示 -->
-        <button class="btn btn-sm btn-primary" id="btnRecompute" style="display:none">
+        <button class="btn btn-primary" id="btnRecompute" style="display:none">
             <i class="bi bi-arrow-repeat"></i> 立即补算
         </button>
     </div>
 </div>
 
-<!-- 团队概览 -->
-<div class="stats-grid mb-4" id="teamStatsRow">
+<!-- Stats Cards -->
+<div class="stats-grid" style="margin-bottom: var(--space-4);" id="teamStatsRow">
     <div class="stat-card primary">
         <div class="stat-icon"><i class="bi bi-git"></i></div>
         <div class="stat-value" id="stat-commits">-</div>
-        <div class="stat-label">总提交</div>
+        <div class="stat-label">提交次数</div>
     </div>
     <div class="stat-card success">
         <div class="stat-icon"><i class="bi bi-plus-circle"></i></div>
         <div class="stat-value" id="stat-add">-</div>
-        <div class="stat-label">总新增</div>
+        <div class="stat-label">新增行数</div>
     </div>
     <div class="stat-card warning">
         <div class="stat-icon"><i class="bi bi-dash-circle"></i></div>
         <div class="stat-value" id="stat-del">-</div>
-        <div class="stat-label">总删除</div>
+        <div class="stat-label">删除行数</div>
     </div>
     <div class="stat-card info">
         <div class="stat-icon"><i class="bi bi-speedometer2"></i></div>
         <div class="stat-value" id="stat-avg">-</div>
-        <div class="stat-label">均分</div>
+        <div class="stat-label">平均得分</div>
     </div>
     <div class="stat-card dark">
         <div class="stat-icon"><i class="bi bi-people"></i></div>
@@ -80,33 +80,58 @@
     </div>
 </div>
 
-<!-- 图表区 -->
-<div class="row g-3 mb-4">
-    <div class="col-md-7"><div class="card"><div class="card-body"><div id="chartCodeTop"></div></div></div></div>
-    <div class="col-md-5"><div class="card"><div class="card-body"><div id="chartGradePie"></div></div></div></div>
+<!-- Charts -->
+<div class="widget-grid widget-grid-2" style="margin-bottom: var(--space-4);">
+    <div class="widget-card">
+        <div class="widget-card-header">
+            <div class="widget-card-title">
+                <i class="bi bi-bar-chart"></i> 代码量 TOP 10
+            </div>
+        </div>
+        <div class="widget-card-body">
+            <div id="chartCodeTop"></div>
+        </div>
+    </div>
+    <div class="widget-card">
+        <div class="widget-card-header">
+            <div class="widget-card-title">
+                <i class="bi bi-pie-chart"></i> 评分分布
+            </div>
+        </div>
+        <div class="widget-card-body">
+            <div id="chartGradePie"></div>
+        </div>
+    </div>
 </div>
 
-<!-- 表格 -->
-<div class="card">
-    <div class="card-body p-0">
-        <table class="table efficiency-table mb-0" id="efficiencyTable">
-            <thead>
-                <tr>
-                    <th>姓名</th>
-                    <th>邮箱</th>
-                    <th data-sort="commits">提交 <i class="bi bi-arrow-down-up sort-icon"></i></th>
-                    <th data-sort="additions">新增 <i class="bi bi-arrow-down-up sort-icon"></i></th>
-                    <th data-sort="deletions">删除 <i class="bi bi-arrow-down-up sort-icon"></i></th>
-                    <th data-sort="files_changed">文件 <i class="bi bi-arrow-down-up sort-icon"></i></th>
-                    <th data-sort="score" class="sorted">评分 <i class="bi bi-arrow-down-up sort-icon"></i></th>
-                    <th>等级</th>
-                    <th>涉及项目</th>
-                </tr>
-            </thead>
-            <tbody id="efficiencyTbody">
-                <tr><td colspan="9" class="text-center text-muted py-4">加载中...</td></tr>
-            </tbody>
-        </table>
+<!-- Table Panel -->
+<div class="panel">
+    <div class="panel-heading">
+        <div class="panel-title">
+            <i class="bi bi-people"></i> 人员数据
+        </div>
+    </div>
+    <div class="panel-body" style="padding: 0;">
+        <div style="overflow-x: auto;">
+            <table class="app-table-list efficiency-table" id="efficiencyTable">
+                <thead>
+                    <tr>
+                        <th style="min-width: 100px;">姓名</th>
+                        <th style="min-width: 160px;">邮箱</th>
+                        <th style="min-width: 80px;" data-sort="commits">提交 <i class="bi bi-arrow-down-up sort-icon"></i></th>
+                        <th style="min-width: 80px;" data-sort="additions">新增 <i class="bi bi-arrow-down-up sort-icon"></i></th>
+                        <th style="min-width: 80px;" data-sort="deletions">删除 <i class="bi bi-arrow-down-up sort-icon"></i></th>
+                        <th style="min-width: 70px;" data-sort="files_changed">文件 <i class="bi bi-arrow-down-up sort-icon"></i></th>
+                        <th style="min-width: 70px;" data-sort="score" class="sorted">评分 <i class="bi bi-arrow-down-up sort-icon"></i></th>
+                        <th style="min-width: 70px;">等级</th>
+                        <th style="min-width: 140px;">涉及项目</th>
+                    </tr>
+                </thead>
+                <tbody id="efficiencyTbody">
+                    <tr><td colspan="9" style="text-align: center; color: var(--color-slate-500); padding: var(--space-8);">加载中...</td></tr>
+                </tbody>
+            </table>
+        </div>
     </div>
 </div>
 
@@ -114,11 +139,11 @@
 <div class="drawer-overlay" id="drawerOverlay"></div>
 <div class="drawer" id="detailDrawer">
     <div class="drawer-header">
-        <h5 class="m-0" id="drawerTitle">详情</h5>
-        <button class="btn-close" id="drawerClose"></button>
+        <h5 style="margin: 0; font-weight: 600;" id="drawerTitle">详情</h5>
+        <button class="btn-close-modal" id="drawerClose">&times;</button>
     </div>
     <div class="drawer-body" id="drawerBody">
-        <div class="text-muted">加载中...</div>
+        <div style="color: var(--color-slate-500);">加载中...</div>
     </div>
 </div>
 {% endblock %}

@@ -6,7 +6,7 @@
 <!-- Page Header -->
 <div class="page-header">
     <div>
-        <h1 class="page-title">仪表板</h1>
+        <h1 class="page-title">工作台</h1>
         <p class="page-subtitle">GitLab 代码审查工具 - 系统概览</p>
     </div>
     <div class="btn-group">
@@ -21,171 +21,253 @@
     </div>
 </div>
 
-<!-- Stats Grid -->
-<div class="stats-grid">
-    <div class="stat-card primary">
-        <div class="stat-icon">
-            <i class="bi bi-folder fs-5"></i>
+<!-- Desktop Container -->
+<div class="desktop-container">
+    <!-- Tabs -->
+    <div class="desktop-tabs">
+        <div class="desktop-tab-item active" onclick="switchDesktopTab(this, 'overview')">
+            <span>概览</span>
         </div>
-        <div class="stat-value">{{ stats.total_projects }}</div>
-        <div class="stat-label">项目总数</div>
-        <a href="/projects" class="stat-link">
-            查看全部 <i class="bi bi-arrow-right"></i>
-        </a>
-    </div>
-
-    <div class="stat-card success">
-        <div class="stat-icon">
-            <i class="bi bi-file-earmark-text fs-5"></i>
-        </div>
-        <div class="stat-value">{{ stats.today_reports }}</div>
-        <div class="stat-label">今日报告</div>
-        <a href="/reports" class="stat-link">
-            查看全部 <i class="bi bi-arrow-right"></i>
-        </a>
-    </div>
-
-    <div class="stat-card warning">
-        <div class="stat-icon">
-            <i class="bi bi-activity fs-5"></i>
-        </div>
-        <div class="stat-value">{{ stats.active_projects }}</div>
-        <div class="stat-label">活跃项目</div>
-    </div>
-
-    <div class="stat-card dark">
-        <div class="stat-icon">
-            <i class="bi bi-lightning fs-5"></i>
-        </div>
-        <div class="stat-value">{{ stats.today_webhook_reviews }}</div>
-        <div class="stat-label">Webhook 审查</div>
-        <a href="/webhook-reviews" class="stat-link">
-            查看全部 <i class="bi bi-arrow-right"></i>
-        </a>
-    </div>
-</div>
-
-<!-- Main Content Grid -->
-<div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-6);">
-    <!-- Quick Actions -->
-    <div class="card">
-        <div class="card-header">
-            <i class="bi bi-lightning"></i> 快速操作
-        </div>
-        <div class="card-body">
-            <div style="display: flex; flex-direction: column; gap: var(--space-3);">
-                {% if 'system_admin' in current_user_roles or 'project_admin' in current_user_roles %}
-                <button class="btn btn-primary" onclick="runAllTasks()">
-                    <i class="bi bi-play-fill"></i> 立即执行所有任务
-                </button>
-                <a href="/projects?action=add" class="btn btn-secondary">
-                    <i class="bi bi-plus-circle"></i> 添加新项目
-                </a>
-                {% endif %}
-                {% if 'system_admin' in current_user_roles %}
-                <a href="/settings" class="btn btn-secondary">
-                    <i class="bi bi-gear"></i> 系统设置
-                </a>
-                {% endif %}
-            </div>
-        </div>
-    </div>
-
-    <!-- Recent Tasks -->
-    <div class="card">
-        <div class="card-header">
-            <i class="bi bi-clock-history"></i> 最近任务
-        </div>
-        <div class="card-body" style="padding: 0;">
+        <div class="desktop-tab-item" onclick="switchDesktopTab(this, 'tasks')">
+            <span>任务动态</span>
             {% if recent_tasks %}
-            <div class="table-container" style="border: none; border-radius: 0;">
-                <table class="table" style="margin-bottom: 0;">
-                    <thead>
-                        <tr>
-                            <th>项目</th>
-                            <th>状态</th>
-                            <th>时间</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for task in recent_tasks %}
-                        <tr>
-                            <td>{{ task.project_name }}</td>
-                            <td>
-                                {% if task.status == 'success' %}
-                                <span class="badge badge-success">成功</span>
-                                {% elif task.status == 'running' %}
-                                <span class="badge badge-primary">运行中</span>
-                                {% elif task.status == 'failed' %}
-                                <span class="badge badge-error">失败</span>
-                                {% else %}
-                                <span class="badge badge-gray">{{ task.status }}</span>
-                                {% endif %}
-                            </td>
-                            <td><small>{{ task.start_time }}</small></td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-            {% else %}
-            <div class="empty-state">
-                <i class="bi bi-inbox"></i>
-                <p>暂无任务记录</p>
-            </div>
+            <span class="desktop-tab-badge">{{ recent_tasks|length }}</span>
             {% endif %}
-            <div class="card-footer" style="text-align: right; border-top: none; padding-top: var(--space-3);">
-                <a href="/logs" class="btn btn-sm btn-secondary">查看全部</a>
-            </div>
+        </div>
+        <div class="desktop-tab-item" onclick="switchDesktopTab(this, 'scheduler')">
+            <span>定时任务</span>
         </div>
     </div>
-</div>
 
-<!-- Scheduler Status -->
-<div class="section">
-    <h2 class="section-title">
-        <i class="bi bi-calendar-check"></i>
-        定时任务状态
-    </h2>
+    <!-- Tab Content -->
+    <div class="desktop-content">
+        <!-- 概览 Tab -->
+        <div id="tab-overview" class="tab-pane active">
+            <!-- 统计卡片 -->
+            <div class="widget-grid widget-grid-4" style="margin-bottom: var(--space-4);">
+                <div class="widget-card">
+                    <div class="widget-card-body">
+                        <div class="stat-widget">
+                            <div class="stat-widget-value">{{ stats.total_projects }}</div>
+                            <div class="stat-widget-label">项目总数</div>
+                            <a href="/projects" class="stat-widget-change" style="color: var(--color-primary);">
+                                查看全部 <i class="bi bi-arrow-right"></i>
+                            </a>
+                        </div>
+                    </div>
+                </div>
 
-    <div class="card">
-        <div class="card-body" style="padding: 0;">
-            {% if scheduler_jobs %}
-            <div class="table-container" style="border: none; border-radius: 0;">
-                <table class="table" style="margin-bottom: 0;">
-                    <thead>
-                        <tr>
-                            <th>任务名称</th>
-                            <th>触发器</th>
-                            <th>下次执行时间</th>
-                            <th>操作</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for job in scheduler_jobs %}
-                        <tr>
-                            <td>{{ job.name }}</td>
-                            <td><code style="font-size: var(--text-xs);">{{ job.trigger }}</code></td>
-                            <td><small>{{ job.next_run_time or '未启动' }}</small></td>
-                            <td>
-                                {% if 'system_admin' in current_user_roles or 'project_admin' in current_user_roles %}
-                                <button class="btn btn-sm btn-secondary"
-                                        onclick="runJobNow('{{ job.id }}')">
-                                    <i class="bi bi-play-fill"></i> 立即执行
-                                </button>
-                                {% endif %}
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+                <div class="widget-card">
+                    <div class="widget-card-body">
+                        <div class="stat-widget">
+                            <div class="stat-widget-value">{{ stats.today_reports }}</div>
+                            <div class="stat-widget-label">今日报告</div>
+                            <a href="/reports" class="stat-widget-change" style="color: var(--color-primary);">
+                                查看全部 <i class="bi bi-arrow-right"></i>
+                            </a>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="widget-card">
+                    <div class="widget-card-body">
+                        <div class="stat-widget">
+                            <div class="stat-widget-value">{{ stats.active_projects }}</div>
+                            <div class="stat-widget-label">活跃项目</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="widget-card">
+                    <div class="widget-card-body">
+                        <div class="stat-widget">
+                            <div class="stat-widget-value">{{ stats.today_webhook_reviews }}</div>
+                            <div class="stat-widget-label">Webhook 审查</div>
+                            <a href="/webhook-reviews" class="stat-widget-change" style="color: var(--color-primary);">
+                                查看全部 <i class="bi bi-arrow-right"></i>
+                            </a>
+                        </div>
+                    </div>
+                </div>
             </div>
-            {% else %}
-            <div class="empty-state">
-                <i class="bi bi-calendar-x"></i>
-                <p>调度器未启动或无定时任务</p>
+
+            <!-- 快速操作和最近任务 -->
+            <div class="widget-grid widget-grid-2">
+                <!-- 快速操作 -->
+                <div class="widget-card">
+                    <div class="widget-card-header">
+                        <div class="widget-card-title">
+                            <i class="bi bi-lightning"></i> 快速操作
+                        </div>
+                    </div>
+                    <div class="widget-card-body">
+                        <div style="display: flex; flex-direction: column; gap: var(--space-3);">
+                            {% if 'system_admin' in current_user_roles or 'project_admin' in current_user_roles %}
+                            <button class="btn btn-primary" onclick="runAllTasks()">
+                                <i class="bi bi-play-fill"></i> 立即执行所有任务
+                            </button>
+                            <a href="/projects?action=add" class="btn btn-secondary">
+                                <i class="bi bi-plus-circle"></i> 添加新项目
+                            </a>
+                            {% endif %}
+                            {% if 'system_admin' in current_user_roles %}
+                            <a href="/settings" class="btn btn-secondary">
+                                <i class="bi bi-gear"></i> 系统设置
+                            </a>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 最近任务 -->
+                <div class="widget-card">
+                    <div class="widget-card-header">
+                        <div class="widget-card-title">
+                            <i class="bi bi-clock-history"></i> 最近任务
+                        </div>
+                        <a href="/logs" class="btn btn-sm btn-secondary">查看全部</a>
+                    </div>
+                    <div class="widget-card-body no-padding">
+                        {% if recent_tasks %}
+                        <table class="widget-table">
+                            <thead>
+                                <tr>
+                                    <th>项目</th>
+                                    <th>状态</th>
+                                    <th>时间</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for task in recent_tasks %}
+                                <tr>
+                                    <td>{{ task.project_name }}</td>
+                                    <td>
+                                        {% if task.status == 'success' %}
+                                        <span class="badge badge-success">成功</span>
+                                        {% elif task.status == 'running' %}
+                                        <span class="badge badge-primary">运行中</span>
+                                        {% elif task.status == 'failed' %}
+                                        <span class="badge badge-error">失败</span>
+                                        {% else %}
+                                        <span class="badge badge-gray">{{ task.status }}</span>
+                                        {% endif %}
+                                    </td>
+                                    <td><small>{{ task.start_time }}</small></td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                        {% else %}
+                        <div class="widget-empty">
+                            <i class="bi bi-inbox"></i>
+                            <p>暂无任务记录</p>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
             </div>
-            {% endif %}
+        </div>
+
+        <!-- 任务动态 Tab -->
+        <div id="tab-tasks" class="tab-pane" style="display: none;">
+            <div class="widget-card">
+                <div class="widget-card-header">
+                    <div class="widget-card-title">
+                        <i class="bi bi-list-check"></i> 任务执行记录
+                    </div>
+                    <a href="/logs" class="btn btn-sm btn-secondary">查看全部</a>
+                </div>
+                <div class="widget-card-body no-padding">
+                    {% if recent_tasks %}
+                    <table class="app-table-list">
+                        <thead>
+                            <tr>
+                                <th style="width: 50px;">序号</th>
+                                <th>项目名称</th>
+                                <th>状态</th>
+                                <th>开始时间</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for task in recent_tasks %}
+                            <tr>
+                                <td>{{ loop.index }}</td>
+                                <td>{{ task.project_name }}</td>
+                                <td>
+                                    {% if task.status == 'success' %}
+                                    <span class="badge badge-success">成功</span>
+                                    {% elif task.status == 'running' %}
+                                    <span class="badge badge-primary">运行中</span>
+                                    {% elif task.status == 'failed' %}
+                                    <span class="badge badge-error">失败</span>
+                                    {% else %}
+                                    <span class="badge badge-gray">{{ task.status }}</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ task.start_time }}</td>
+                                <td>
+                                    <a href="/logs" class="btn btn-sm btn-secondary">详情</a>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                    {% else %}
+                    <div class="widget-empty">
+                        <i class="bi bi-inbox"></i>
+                        <p>暂无任务记录</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- 定时任务 Tab -->
+        <div id="tab-scheduler" class="tab-pane" style="display: none;">
+            <div class="widget-card">
+                <div class="widget-card-header">
+                    <div class="widget-card-title">
+                        <i class="bi bi-calendar-check"></i> 定时任务状态
+                    </div>
+                </div>
+                <div class="widget-card-body no-padding">
+                    {% if scheduler_jobs %}
+                    <table class="app-table-list">
+                        <thead>
+                            <tr>
+                                <th>任务名称</th>
+                                <th>触发器</th>
+                                <th>下次执行时间</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for job in scheduler_jobs %}
+                            <tr>
+                                <td>{{ job.name }}</td>
+                                <td><code style="font-size: var(--text-xs);">{{ job.trigger }}</code></td>
+                                <td><small>{{ job.next_run_time or '未启动' }}</small></td>
+                                <td>
+                                    {% if 'system_admin' in current_user_roles or 'project_admin' in current_user_roles %}
+                                    <button class="btn btn-sm btn-secondary"
+                                            onclick="runJobNow('{{ job.id }}')">
+                                        <i class="bi bi-play-fill"></i> 立即执行
+                                    </button>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                    {% else %}
+                    <div class="widget-empty">
+                        <i class="bi bi-calendar-x"></i>
+                        <p>调度器未启动或无定时任务</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
         </div>
     </div>
 </div>
@@ -193,6 +275,26 @@
 
 {% block extra_js %}
 <script>
+function switchDesktopTab(el, tabName) {
+    // 更新tab状态
+    document.querySelectorAll('.desktop-tab-item').forEach(tab => {
+        tab.classList.remove('active');
+    });
+    el.classList.add('active');
+
+    // 更新内容显示
+    document.querySelectorAll('.tab-pane').forEach(pane => {
+        pane.style.display = 'none';
+        pane.classList.remove('active');
+    });
+
+    const targetPane = document.getElementById('tab-' + tabName);
+    if (targetPane) {
+        targetPane.style.display = 'block';
+        targetPane.classList.add('active');
+    }
+}
+
 async function runAllTasks() {
     if (!confirm('确定要立即执行所有项目的审查任务吗？')) return;
 
@@ -225,4 +327,24 @@ async function runJobNow(jobId) {
     }
 }
 </script>
+
+{% block extra_css %}
+<style>
+.widget-grid-4 {
+    grid-template-columns: repeat(4, 1fr);
+}
+
+@media (max-width: 1200px) {
+    .widget-grid-4 {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 768px) {
+    .widget-grid-4 {
+        grid-template-columns: 1fr;
+    }
+}
+</style>
+{% endblock %}
 {% endblock %}

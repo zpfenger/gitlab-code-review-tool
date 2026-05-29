@@ -11,12 +11,26 @@
     </div>
 </div>
 
-<!-- Filters -->
-<div class="card mb-4">
-    <div class="card-body">
-        <form method="get" class="filter-grid filter-grid-3" style="margin-bottom: 0;">
-            <div class="form-group" style="margin-bottom: 0;">
-                <label for="project" class="form-label">项目</label>
+<!-- Panel -->
+<div class="panel">
+    <!-- Panel Heading -->
+    <div class="panel-heading">
+        <div class="panel-title">
+            <i class="bi bi-file-earmark-text"></i> 报告列表
+        </div>
+        <div class="btn-group">
+            <button class="btn btn-secondary" onclick="location.reload()">
+                <i class="bi bi-arrow-clockwise"></i> 刷新
+            </button>
+        </div>
+    </div>
+
+    <!-- Panel Body -->
+    <div class="panel-body">
+        <!-- Filter Form -->
+        <form method="get" class="filter-form">
+            <div class="form-group">
+                <label for="project">项目</label>
                 <select class="form-input form-select" id="project" name="project">
                     <option value="">全部项目</option>
                     {% for p in projects %}
@@ -26,8 +40,8 @@
                     {% endfor %}
                 </select>
             </div>
-            <div class="form-group" style="margin-bottom: 0;">
-                <label for="report_type" class="form-label">报告类型</label>
+            <div class="form-group">
+                <label for="report_type">报告类型</label>
                 <select class="form-input form-select" id="report_type" name="report_type">
                     <option value="" {% if not filters.report_type %}selected{% endif %}>全部类型</option>
                     <option value="daily" {% if filters.report_type == 'daily' %}selected{% endif %}>日报</option>
@@ -35,104 +49,109 @@
                     <option value="monthly" {% if filters.report_type == 'monthly' %}selected{% endif %}>月报</option>
                 </select>
             </div>
-            <div class="form-group" style="margin-bottom: 0;">
-                <label for="date" class="form-label">日期</label>
+            <div class="form-group">
+                <label for="date">日期</label>
                 <input type="date" class="form-input" id="date" name="date" value="{{ filters.date }}">
             </div>
-            <div style="display: flex; gap: var(--space-2);">
-                <button type="submit" class="btn btn-primary">
-                    <i class="bi bi-search"></i> 筛选
-                </button>
-                <a href="/reports" class="btn btn-secondary">
-                    <i class="bi bi-x-circle"></i> 清除
-                </a>
+            <div class="form-group">
+                <label>&nbsp;</label>
+                <div class="btn-group">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-search"></i> 查询
+                    </button>
+                    <a href="/reports" class="btn btn-secondary">
+                        <i class="bi bi-x-circle"></i> 清空
+                    </a>
+                </div>
             </div>
         </form>
-    </div>
-</div>
 
-<!-- Report Layout -->
-<div style="display: grid; grid-template-columns: 320px 1fr; gap: var(--space-6);">
-    <!-- Report Tree -->
-    <div class="card">
-        <div class="card-header">
-            <i class="bi bi-folder2-open"></i> 报告目录
-        </div>
-        <div class="card-body" style="padding: 0; max-height: 600px; overflow-y: auto;">
-            <div id="reportTree">
-                {% for project_name, dates in reports.items() %}
-                <div class="report-project">
-                    <div class="report-project-header" onclick="toggleProject('{{ project_name }}')">
-                        <div style="display: flex; align-items: center; gap: var(--space-2);">
-                            <i class="bi bi-chevron-right" id="icon-{{ project_name | urlencode }}"></i>
-                            <i class="bi bi-folder"></i>
-                            <strong>{{ project_name }}</strong>
-                        </div>
-                        <span class="badge badge-gray">{{ dates|length }}</span>
-                    </div>
-                    <div class="report-dates" id="project-{{ project_name | urlencode }}" style="display: none;">
-                        {% for date, authors in dates.items() %}
-                        <div class="report-date">
-                            <div class="report-date-header" onclick="toggleDate('{{ project_name }}', '{{ date }}')">
+        <!-- Report Layout -->
+        <div style="display: grid; grid-template-columns: 300px 1fr; gap: var(--space-4); margin-top: var(--space-4);">
+            <!-- Report Tree -->
+            <div style="border: 1px solid var(--color-slate-200); border-radius: var(--radius-md); overflow: hidden;">
+                <div style="padding: var(--space-3) var(--space-4); background: var(--color-slate-50); border-bottom: 1px solid var(--color-slate-200); font-weight: 600; font-size: var(--text-sm);">
+                    <i class="bi bi-folder2-open"></i> 报告目录
+                </div>
+                <div style="max-height: 500px; overflow-y: auto;">
+                    <div id="reportTree">
+                        {% for project_name, dates in reports.items() %}
+                        <div class="report-project">
+                            <div class="report-project-header" onclick="toggleProject('{{ project_name }}')">
                                 <div style="display: flex; align-items: center; gap: var(--space-2);">
-                                    <i class="bi bi-chevron-right" id="date-icon-{{ project_name | urlencode }}-{{ date | urlencode }}"></i>
-                                    <i class="bi bi-calendar3"></i>
-                                    {{ date | replace('_to_', ' 至 ') }}
+                                    <i class="bi bi-chevron-right" id="icon-{{ project_name | urlencode }}"></i>
+                                    <i class="bi bi-folder"></i>
+                                    <strong>{{ project_name }}</strong>
                                 </div>
-                                <span class="badge badge-gray">{{ authors|length }}</span>
+                                <span class="badge badge-gray">{{ dates|length }}</span>
                             </div>
-                            <div class="report-authors" id="date-{{ project_name | urlencode }}-{{ date | urlencode }}" style="display: none;">
-                                {% for author, file_info in authors.items() %}
-                                <div class="report-author">
-                                    <a href="#" onclick="loadReport('{{ file_info.type }}', '{{ project_name }}', '{{ date }}', '{{ file_info.filename }}'); return false;">
-                                        <i class="bi bi-file-earmark-text"></i>
-                                        {{ author }}
-                                        {% if file_info.type == 'weekly' %}
-                                        <span class="badge badge-primary" style="margin-left: var(--space-1);">周报</span>
-                                        {% elif file_info.type == 'monthly' %}
-                                        <span class="badge badge-info" style="margin-left: var(--space-1);">月报</span>
-                                        {% endif %}
-                                    </a>
-                                    {% if 'system_admin' in current_user_roles or 'project_admin' in current_user_roles %}
-                                    <button class="btn btn-sm" onclick="confirmDeleteReport('{{ project_name }}', '{{ file_info.type }}', '{{ date }}', '{{ author }}', '{{ file_info.filename }}')" title="删除报告">
-                                        <i class="bi bi-trash"></i>
-                                    </button>
-                                    {% endif %}
+                            <div class="report-dates" id="project-{{ project_name | urlencode }}" style="display: none;">
+                                {% for date, authors in dates.items() %}
+                                <div class="report-date">
+                                    <div class="report-date-header" onclick="toggleDate('{{ project_name }}', '{{ date }}')">
+                                        <div style="display: flex; align-items: center; gap: var(--space-2);">
+                                            <i class="bi bi-chevron-right" id="date-icon-{{ project_name | urlencode }}-{{ date | urlencode }}"></i>
+                                            <i class="bi bi-calendar3"></i>
+                                            {{ date | replace('_to_', ' 至 ') }}
+                                        </div>
+                                        <span class="badge badge-gray">{{ authors|length }}</span>
+                                    </div>
+                                    <div class="report-authors" id="date-{{ project_name | urlencode }}-{{ date | urlencode }}" style="display: none;">
+                                        {% for author, file_info in authors.items() %}
+                                        <div class="report-author">
+                                            <a href="#" onclick="loadReport('{{ file_info.type }}', '{{ project_name }}', '{{ date }}', '{{ file_info.filename }}'); return false;">
+                                                <i class="bi bi-file-earmark-text"></i>
+                                                {{ author }}
+                                                {% if file_info.type == 'weekly' %}
+                                                <span class="badge badge-primary" style="margin-left: var(--space-1);">周报</span>
+                                                {% elif file_info.type == 'monthly' %}
+                                                <span class="badge badge-info" style="margin-left: var(--space-1);">月报</span>
+                                                {% endif %}
+                                            </a>
+                                            {% if 'system_admin' in current_user_roles or 'project_admin' in current_user_roles %}
+                                            <button class="btn btn-sm" onclick="confirmDeleteReport('{{ project_name }}', '{{ file_info.type }}', '{{ date }}', '{{ author }}', '{{ file_info.filename }}')" title="删除报告">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
+                                            {% endif %}
+                                        </div>
+                                        {% endfor %}
+                                    </div>
                                 </div>
                                 {% endfor %}
                             </div>
                         </div>
+                        {% else %}
+                        <div style="padding: var(--space-8); text-align: center; color: var(--color-slate-500);">
+                            <i class="bi bi-inbox" style="font-size: 2rem;"></i>
+                            <p style="margin-top: var(--space-2);">暂无报告</p>
+                        </div>
                         {% endfor %}
                     </div>
                 </div>
-                {% else %}
-                <div style="padding: var(--space-8); text-align: center; color: var(--color-slate-500);">
-                    <i class="bi bi-inbox" style="font-size: 2rem;"></i>
-                    <p style="margin-top: var(--space-2);">暂无报告</p>
-                </div>
-                {% endfor %}
             </div>
-        </div>
-    </div>
 
-    <!-- Report Content -->
-    <div class="card">
-        <div class="card-header">
-            <span><i class="bi bi-file-text"></i> 报告内容</span>
-            <div id="reportActions" style="display: none; margin-left: auto;">
-                <a href="#" class="btn btn-sm btn-secondary" id="downloadBtn">
-                    <i class="bi bi-download"></i> 下载
-                </a>
-                <button class="btn btn-sm btn-secondary" onclick="copyReport()">
-                    <i class="bi bi-clipboard"></i> 复制
-                </button>
-            </div>
-        </div>
-        <div class="card-body">
-            <div id="reportContent">
-                <div style="text-align: center; padding: var(--space-12); color: var(--color-slate-500);">
-                    <i class="bi bi-file-earmark-text" style="font-size: 3rem;"></i>
-                    <p style="margin-top: var(--space-4);">请从左侧选择一份报告查看</p>
+            <!-- Report Content -->
+            <div style="border: 1px solid var(--color-slate-200); border-radius: var(--radius-md); overflow: hidden;">
+                <div style="display: flex; align-items: center; justify-content: space-between; padding: var(--space-3) var(--space-4); background: var(--color-slate-50); border-bottom: 1px solid var(--color-slate-200);">
+                    <div style="font-weight: 600; font-size: var(--text-sm);">
+                        <i class="bi bi-file-text"></i> 报告内容
+                    </div>
+                    <div id="reportActions" style="display: none;">
+                        <a href="#" class="btn btn-sm btn-secondary" id="downloadBtn">
+                            <i class="bi bi-download"></i> 下载
+                        </a>
+                        <button class="btn btn-sm btn-secondary" onclick="copyReport()">
+                            <i class="bi bi-clipboard"></i> 复制
+                        </button>
+                    </div>
+                </div>
+                <div style="padding: var(--space-4); min-height: 400px; max-height: 500px; overflow-y: auto;">
+                    <div id="reportContent">
+                        <div style="text-align: center; padding: var(--space-12); color: var(--color-slate-500);">
+                            <i class="bi bi-file-earmark-text" style="font-size: 3rem;"></i>
+                            <p style="margin-top: var(--space-4);">请从左侧选择一份报告查看</p>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>

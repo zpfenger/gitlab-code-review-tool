@@ -11,12 +11,26 @@
     </div>
 </div>
 
-<!-- Filters -->
-<div class="card mb-4">
-    <div class="card-body">
-        <form method="get" class="filter-grid filter-grid-4" style="margin-bottom: 0;">
-            <div class="form-group" style="margin-bottom: 0;">
-                <label for="project_id" class="form-label">项目</label>
+<!-- Panel -->
+<div class="panel">
+    <!-- Panel Heading -->
+    <div class="panel-heading">
+        <div class="panel-title">
+            <i class="bi bi-list-check"></i> 执行记录
+        </div>
+        <div class="btn-group">
+            <button class="btn btn-secondary" onclick="location.reload()">
+                <i class="bi bi-arrow-clockwise"></i> 刷新
+            </button>
+        </div>
+    </div>
+
+    <!-- Panel Body -->
+    <div class="panel-body">
+        <!-- Filter Form -->
+        <form method="get" class="filter-form">
+            <div class="form-group">
+                <label for="project_id">项目</label>
                 <select class="form-input form-select" id="project_id" name="project_id">
                     <option value="">全部项目</option>
                     {% for p in projects %}
@@ -26,8 +40,8 @@
                     {% endfor %}
                 </select>
             </div>
-            <div class="form-group" style="margin-bottom: 0;">
-                <label for="status" class="form-label">状态</label>
+            <div class="form-group">
+                <label for="status">状态</label>
                 <select class="form-input form-select" id="status" name="status">
                     <option value="">全部</option>
                     <option value="success" {% if filters.status == 'success' %}selected{% endif %}>成功</option>
@@ -35,55 +49,78 @@
                     <option value="failed" {% if filters.status == 'failed' %}selected{% endif %}>失败</option>
                 </select>
             </div>
-            <div class="form-group" style="margin-bottom: 0;">
-                <label for="start_date" class="form-label">开始日期</label>
+            <div class="form-group">
+                <label for="start_date">开始日期</label>
                 <input type="date" class="form-input" id="start_date" name="start_date"
                        value="{{ filters.start_date }}">
             </div>
-            <div class="form-group" style="margin-bottom: 0;">
-                <label for="end_date" class="form-label">结束日期</label>
+            <div class="form-group">
+                <label for="end_date">结束日期</label>
                 <input type="date" class="form-input" id="end_date" name="end_date"
                        value="{{ filters.end_date }}">
             </div>
-            <div style="display: flex; gap: var(--space-2); align-items: flex-end;">
-                <button type="submit" class="btn btn-primary">
-                    <i class="bi bi-search"></i> 筛选
-                </button>
-                <a href="/logs" class="btn btn-secondary">
-                    <i class="bi bi-x-circle"></i>
-                </a>
+            <div class="form-group">
+                <label>&nbsp;</label>
+                <div class="btn-group">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-search"></i> 查询
+                    </button>
+                    <a href="/logs" class="btn btn-secondary">
+                        <i class="bi bi-x-circle"></i> 清空
+                    </a>
+                </div>
             </div>
         </form>
-    </div>
-</div>
 
-<!-- Log List -->
-<div class="card">
-    <div class="card-header">
-        <span><i class="bi bi-table"></i> 执行记录</span>
-        <span class="badge badge-gray">{{ pagination.total }} 条</span>
-    </div>
-    <div class="card-body" style="padding: 0;">
+        <!-- Toolbar -->
+        <div class="toolbar">
+            <div class="toolbar-left">
+                <span style="font-size: var(--text-sm); color: var(--color-slate-600);">
+                    共 <b>{{ pagination.total }}</b> 条记录
+                </span>
+            </div>
+            <div class="toolbar-right">
+                <div class="page-size-selector">
+                    <select onchange="changePageSize(this.value)">
+                        <option value="10" {% if pagination.per_page == 10 %}selected{% endif %}>10条/页</option>
+                        <option value="20" {% if pagination.per_page == 20 %}selected{% endif %}>20条/页</option>
+                        <option value="50" {% if pagination.per_page == 50 %}selected{% endif %}>50条/页</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <!-- Table -->
         {% if logs %}
-        <div class="table-container" style="border: none; border-radius: 0;">
-            <table class="table" style="margin-bottom: 0;">
+        <div style="overflow-x: auto;">
+            <table class="app-table-list">
                 <thead>
                     <tr>
-                        <th class="col-narrow">ID</th>
+                        <th style="width: 50px;">ID</th>
+                        <th style="width: 80px;">操作</th>
                         <th>项目</th>
                         <th>类型</th>
                         <th>状态</th>
-                        <th style="text-align:center;" title="分支数 / 提交数 / 报告数">数据 <small class="text-muted">(分/提/报)</small></th>
-                        <th style="min-width:120px;">开始时间</th>
-                        <th class="col-medium">耗时</th>
-                        <th class="col-actions">操作</th>
+                        <th title="分支数 / 提交数 / 报告数">数据 <small>(分/提/报)</small></th>
+                        <th>开始时间</th>
+                        <th>耗时</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for log in logs %}
                     <tr>
-                        <td class="col-narrow">{{ log.id }}</td>
-                        <td><span class="text-truncate-sm">{{ log.project_name }}</span></td>
+                        <td>{{ log.id }}</td>
+                        <td>
+                            <div class="operation-group">
+                                <i class="bi bi-gear operation-trigger"></i>
+                                <div class="operation-menu">
+                                    <button class="btn btn-sm btn-secondary" onclick="showDetail({{ log.id }})">
+                                        <i class="bi bi-eye"></i> 详情
+                                    </button>
+                                </div>
+                            </div>
+                        </td>
+                        <td style="text-align: left;">{{ log.project_name }}</td>
                         <td>
                             {% if log.task_type == 'daily' %}
                             <span class="badge badge-info">每日审查</span>
@@ -97,25 +134,16 @@
                         </td>
                         <td>
                             {% if log.status == 'success' %}
-                            <span class="status">
-                                <span class="status-dot success"></span>
-                                成功
-                            </span>
+                            <span class="badge badge-success">成功</span>
                             {% elif log.status == 'running' %}
-                            <span class="status">
-                                <span class="status-dot running"></span>
-                                运行中
-                            </span>
+                            <span class="badge badge-primary">运行中</span>
                             {% elif log.status == 'failed' %}
-                            <span class="status">
-                                <span class="status-dot error"></span>
-                                失败
-                            </span>
+                            <span class="badge badge-error">失败</span>
                             {% else %}
                             <span class="badge badge-gray">{{ log.status }}</span>
                             {% endif %}
                         </td>
-                        <td style="text-align:center;">
+                        <td>
                             <small>
                                 <span title="分支">{{ log.branches_processed }}</span> /
                                 <span title="提交">{{ log.commits_processed }}</span> /
@@ -123,54 +151,65 @@
                             </small>
                         </td>
                         <td><small>{{ log.start_time }}</small></td>
-                        <td class="col-medium">
+                        <td>
                             {% if log.end_time %}
                             {{ log.duration }}
                             {% else %}
                             -
                             {% endif %}
                         </td>
-                        <td class="col-actions">
-                            <button class="btn btn-secondary btn-sm" onclick="showDetail({{ log.id }})" title="查看详情">
-                                <i class="bi bi-eye"></i>
-                            </button>
-                        </td>
                     </tr>
                     {% endfor %}
                 </tbody>
+                <tfoot>
+                    <tr class="total-row">
+                        <td class="total-cell" colspan="8" style="text-align: left;">
+                            共 <b>{{ pagination.total }}</b> 条记录
+                        </td>
+                    </tr>
+                </tfoot>
             </table>
         </div>
 
         <!-- Pagination -->
         {% if pagination.pages > 1 %}
-        <div style="display: flex; justify-content: center; padding: var(--space-4);">
-            <nav>
-                <ul class="pagination" style="margin: 0;">
-                    {% if pagination.page > 1 %}
-                    <li class="page-item">
-                        <a class="page-link" href="?page={{ pagination.page - 1 }}{% for k, v in filters.items() if v %}&{{ k }}={{ v }}{% endfor %}">
-                            上一页
-                        </a>
-                    </li>
-                    {% endif %}
+        <div class="pagination-wrapper">
+            <div class="pagination-info">
+                共 <b>{{ pagination.total }}</b> 条记录，第 {{ pagination.page }}/{{ pagination.pages }} 页
+            </div>
+            <div class="pagination-controls">
+                {% if pagination.page > 1 %}
+                <a class="page-link" href="?page=1{% for k, v in filters.items() if v %}&{{ k }}={{ v }}{% endfor %}">第一页</a>
+                <a class="page-link" href="?page={{ pagination.page - 1 }}{% for k, v in filters.items() if v %}&{{ k }}={{ v }}{% endfor %}">上一页</a>
+                {% else %}
+                <span class="page-link disabled">第一页</span>
+                <span class="page-link disabled">上一页</span>
+                {% endif %}
 
-                    {% for p in range(1, pagination.pages + 1) %}
-                    <li class="page-item {% if p == pagination.page %}active{% endif %}">
-                        <a class="page-link" href="?page={{ p }}{% for k, v in filters.items() if v %}&{{ k }}={{ v }}{% endfor %}">
-                            {{ p }}
-                        </a>
-                    </li>
-                    {% endfor %}
+                {% for p in range(1, pagination.pages + 1) %}
+                {% if p == pagination.page %}
+                <span class="page-link active">{{ p }}</span>
+                {% elif p <= 3 or p > pagination.pages - 3 or (p >= pagination.page - 1 and p <= pagination.page + 1) %}
+                <a class="page-link" href="?page={{ p }}{% for k, v in filters.items() if v %}&{{ k }}={{ v }}{% endfor %}">{{ p }}</a>
+                {% elif p == 4 or p == pagination.pages - 3 %}
+                <span class="page-link disabled">...</span>
+                {% endif %}
+                {% endfor %}
 
-                    {% if pagination.page < pagination.pages %}
-                    <li class="page-item">
-                        <a class="page-link" href="?page={{ pagination.page + 1 }}{% for k, v in filters.items() if v %}&{{ k }}={{ v }}{% endfor %}">
-                            下一页
-                        </a>
-                    </li>
-                    {% endif %}
-                </ul>
-            </nav>
+                {% if pagination.page < pagination.pages %}
+                <a class="page-link" href="?page={{ pagination.page + 1 }}{% for k, v in filters.items() if v %}&{{ k }}={{ v }}{% endfor %}">下一页</a>
+                <a class="page-link" href="?page={{ pagination.pages }}{% for k, v in filters.items() if v %}&{{ k }}={{ v }}{% endfor %}">最末页</a>
+                {% else %}
+                <span class="page-link disabled">下一页</span>
+                <span class="page-link disabled">最末页</span>
+                {% endif %}
+            </div>
+            <div class="pagination-jump">
+                <label>跳转到</label>
+                <input type="number" value="{{ pagination.page }}" min="1" max="{{ pagination.pages }}"
+                       onkeydown="if(event.key==='Enter')jumpToPage(this.value)">
+                <label>页</label>
+            </div>
         </div>
         {% endif %}
 
@@ -188,6 +227,7 @@
 <div class="modal" id="detailModal" tabindex="-1" style="max-width: 640px;">
     <div class="modal-header">
         <h5 class="modal-title">任务详情</h5>
+        <button type="button" class="btn-close-modal" onclick="closeModal('detailModal')">&times;</button>
     </div>
     <div class="modal-body" id="detailBody">
         <div style="text-align: center; padding: var(--space-8);">
@@ -199,6 +239,19 @@
 
 {% block extra_js %}
 <script>
+function jumpToPage(page) {
+    const url = new URL(window.location);
+    url.searchParams.set('page', page);
+    window.location.href = url.toString();
+}
+
+function changePageSize(size) {
+    const url = new URL(window.location);
+    url.searchParams.set('per_page', size);
+    url.searchParams.delete('page');
+    window.location.href = url.toString();
+}
+
 async function showDetail(id) {
     openModal('detailModal');
 
