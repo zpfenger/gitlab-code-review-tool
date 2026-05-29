@@ -88,7 +88,7 @@ def test_aggregate_single_author(session, llm_mock):
     assert r.additions == 300        # 100 + 200
     assert r.deletions == 70         # 20 + 50
     assert r.active_days == 2
-    assert r.review_score == 85      # LLM 返回的月度评分
+    assert r.review_score == 85      # 算术平均 (80+90)/2 = 85
     assert r.llm_status == "success"
 
 
@@ -163,6 +163,28 @@ def test_llm_failure_records_error(session):
     assert row.commits_count == 3       # 统计数据正常入库
     assert row.llm_status == "failed"
     assert row.review_score is None
+
+
+def test_multi_author_aggregation(session, llm_mock):
+    """多作者各自聚合为独立月度记录"""
+    _seed_daily(session, "a@b.com", "Alice", date(2026, 5, 1),
+                score=80, commits=3, adds=100, dels=20)
+    _seed_daily(session, "b@b.com", "Bob", date(2026, 5, 1),
+                score=90, commits=5, adds=200, dels=50)
+
+    agg = EfficiencyMonthlyAggregator(
+        db=session,
+        llm_config={"api_url": "x", "api_key": "x", "model": "m"},
+    )
+    result = agg.aggregate("2026-05")
+
+    assert result["authors_total"] == 2
+    assert result["authors_success"] == 2
+
+    rows = session.query(EmployeeEfficiencyMonthly).all()
+    assert len(rows) == 2
+    emails = {r.author_email for r in rows}
+    assert emails == {"a@b.com", "b@b.com"}
 
 
 def test_empty_month_returns_zero(session, llm_mock):
