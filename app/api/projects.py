@@ -7,7 +7,7 @@ from app.api.deps import get_current_user
 from app.models import Project, User, Role
 from app.schemas.project import ProjectCreate, ProjectUpdate, ProjectResponse
 from app.schemas.response import ApiResponse
-from app.services.gitlab_client import GitLabClient
+from app.services.gitlab_client import GitLabClient, GitLabAuthError, GitLabConnectionError
 from app.security import security_service
 from app.api.users import get_current_user_full, require_system_admin, require_project_admin
 
@@ -275,7 +275,7 @@ async def test_project_connection(
     if not token:
         return ApiResponse(success=False, message="未配置 GitLab Token")
 
-    gitlab_url = project.gitlab_url or (settings.global_gitab_url if settings else None)
+    gitlab_url = project.gitlab_url or (settings.global_gitlab_url if settings else None)
     if not gitlab_url:
         return ApiResponse(success=False, message="未配置 GitLab URL")
 
@@ -292,6 +292,16 @@ async def test_project_connection(
                 )
             return ApiResponse(success=False, message=f"GitLab 连接成功，但项目 ID {project.project_id} 不可访问")
         return ApiResponse(success=False, message="GitLab 连接失败")
+    except GitLabAuthError as e:
+        return ApiResponse(
+            success=False,
+            message=f"GitLab 认证失败: Token 无效或已过期，请在设置中更新 Token"
+        )
+    except GitLabConnectionError as e:
+        return ApiResponse(
+            success=False,
+            message=f"无法连接到 GitLab: 请检查 GitLab URL 是否正确 ({gitlab_url})"
+        )
     except Exception as e:
         return ApiResponse(success=False, message=f"GitLab 连接异常: {str(e)}")
 

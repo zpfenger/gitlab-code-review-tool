@@ -166,7 +166,7 @@ async def _run_review_task(
     global _task_progress
 
     from loguru import logger
-    from app.services.gitlab_client import GitLabClient
+    from app.services.gitlab_client import GitLabClient, GitLabAuthError
     from app.services.code_reviewer import CodeReviewer
     from app.services.stats_generator import StatsGenerator
     from app.services.report_merger import ReportMerger
@@ -380,6 +380,13 @@ async def _run_review_task(
                 task_log.end_time = datetime.now()
                 db.commit()
 
+            except GitLabAuthError as e:
+                logger.error(f"处理项目 {project.name} GitLab 认证失败: {e}")
+                task_log.status = "failed"
+                task_log.error_message = f"GitLab 认证失败: {e}"
+                task_log.end_time = datetime.now()
+                db.commit()
+                _task_progress["error"] = f"GitLab 认证失败: {e}"
             except Exception as e:
                 logger.error(f"处理项目 {project.name} 失败: [{type(e).__name__}] {e}", exc_info=True)
                 task_log.status = "failed"

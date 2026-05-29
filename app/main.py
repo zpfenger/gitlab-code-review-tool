@@ -701,7 +701,7 @@ def run_scheduled_task(task_type: str = 'daily'):
         else:
             review_days = settings.daily_review_days or 1
 
-        from app.services.gitlab_client import GitLabClient
+        from app.services.gitlab_client import GitLabClient, GitLabAuthError
         from app.services.code_reviewer import CodeReviewer
         from app.services.stats_generator import StatsGenerator
         from app.services.report_merger import ReportMerger
@@ -844,6 +844,15 @@ def run_scheduled_task(task_type: str = 'daily'):
                 task_log.end_time = datetime.now()
                 db.commit()
 
+            except GitLabAuthError as e:
+                logger.error(
+                    f"项目 {project.name} GitLab 认证失败: {e}\n"
+                    f"请检查: 1) Token 是否过期  2) Token 是否有 api 权限  3) 项目 Token 配置是否正确"
+                )
+                task_log.status = "failed"
+                task_log.error_message = f"GitLab 认证失败: {e}"
+                task_log.end_time = datetime.now()
+                db.commit()
             except Exception as e:
                 logger.error(
                     f"Failed to review project {project.name}: "

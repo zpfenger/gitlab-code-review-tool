@@ -1,9 +1,26 @@
 # app/services/gitlab_client.py
 """GitLab API 客户端服务"""
 import gitlab
+import gitlab.exceptions
 from typing import List, Dict, Optional, Any
 from loguru import logger
 from datetime import datetime
+
+
+class GitLabAuthError(Exception):
+    """GitLab 认证失败（Token 无效、过期或权限不足）"""
+
+    def __init__(self, message: str, project_id: Optional[int] = None):
+        self.project_id = project_id
+        super().__init__(message)
+
+
+class GitLabConnectionError(Exception):
+    """GitLab 连接失败（网络不通、URL 错误）"""
+
+    def __init__(self, message: str, gitlab_url: str = ""):
+        self.gitlab_url = gitlab_url
+        super().__init__(message)
 
 
 class GitLabClient:
@@ -27,12 +44,27 @@ class GitLabClient:
 
         Returns:
             bool: 连接成功返回 True，否则返回 False
+
+        Raises:
+            GitLabAuthError: Token 认证失败（401）
+            GitLabConnectionError: 网络连接失败
         """
         try:
             self.client.auth()
             return True
+        except gitlab.exceptions.GitlabAuthenticationError as e:
+            logger.error(f"GitLab 认证失败 (401): Token 无效或已过期")
+            raise GitLabAuthError(
+                f"GitLab 认证失败: Token 无效或已过期，请检查 Token 是否正确且未过期"
+            ) from e
+        except gitlab.exceptions.GitlabConnectionError as e:
+            logger.error(f"GitLab 连接失败: {e}")
+            raise GitLabConnectionError(
+                f"无法连接到 GitLab ({self.gitlab_url}): {e}",
+                gitlab_url=self.gitlab_url
+            ) from e
         except Exception as e:
-            logger.error(f"GitLab 连接测试失败: {e}")
+            logger.error(f"GitLab 连接测试失败: {type(e).__name__}: {e}")
             return False
 
     def get_project_info(self, project_id: int) -> Dict[str, Any]:
@@ -44,6 +76,9 @@ class GitLabClient:
 
         Returns:
             Dict: 项目信息
+
+        Raises:
+            GitLabAuthError: Token 认证失败（401）
         """
         try:
             project = self.client.projects.get(project_id)
@@ -54,8 +89,14 @@ class GitLabClient:
                 "description": getattr(project, 'description', ''),
                 "default_branch": getattr(project, 'default_branch', 'main')
             }
+        except gitlab.exceptions.GitlabAuthenticationError as e:
+            logger.error(f"获取项目信息失败 - 认证错误 (project_id={project_id}): Token 无效或已过期")
+            raise GitLabAuthError(
+                f"获取项目信息失败: Token 认证失败 (项目 ID: {project_id})",
+                project_id=project_id
+            ) from e
         except Exception as e:
-            logger.error(f"获取项目信息失败: {e}")
+            logger.error(f"获取项目信息失败 (project_id={project_id}): {type(e).__name__}: {e}")
             return {}
 
     def get_branches(
@@ -72,6 +113,10 @@ class GitLabClient:
 
         Returns:
             List[Dict]: 分支列表
+
+        Raises:
+            GitLabAuthError: Token 认证失败（401）
+            GitLabConnectionError: 网络连接失败
         """
         try:
             project = self.client.projects.get(project_id)
@@ -94,8 +139,20 @@ class GitLabClient:
                 }
                 for branch in branches
             ]
+        except gitlab.exceptions.GitlabAuthenticationError as e:
+            logger.error(f"获取分支列表失败 - 认证错误 (project_id={project_id}): Token 无效或已过期")
+            raise GitLabAuthError(
+                f"获取分支列表失败: Token 认证失败 (项目 ID: {project_id})，请检查 Token 是否有效且有 api 权限",
+                project_id=project_id
+            ) from e
+        except gitlab.exceptions.GitlabConnectionError as e:
+            logger.error(f"获取分支列表失败 - 连接错误 (project_id={project_id}): {e}")
+            raise GitLabConnectionError(
+                f"获取分支列表失败: 无法连接到 GitLab ({self.gitlab_url})",
+                gitlab_url=self.gitlab_url
+            ) from e
         except Exception as e:
-            logger.error(f"获取分支列表失败: {e}")
+            logger.error(f"获取分支列表失败 (project_id={project_id}): {type(e).__name__}: {e}")
             return []
 
     def get_commits(
@@ -164,8 +221,14 @@ class GitLabClient:
                     "stats": getattr(commit, 'stats', {})
                 })
             return result
+        except gitlab.exceptions.GitlabAuthenticationError as e:
+            logger.error(f"获取提交列表失败 - 认证错误 (project_id={project_id}): Token 无效或已过期")
+            raise GitLabAuthError(
+                f"获取提交列表失败: Token 认证失败 (项目 ID: {project_id})",
+                project_id=project_id
+            ) from e
         except Exception as e:
-            logger.error(f"获取提交列表失败: {e}")
+            logger.error(f"获取提交列表失败 (project_id={project_id}): {type(e).__name__}: {e}")
             return []
 
     def get_commit_diff(
@@ -231,8 +294,14 @@ class GitLabClient:
             )
             return result
 
+        except gitlab.exceptions.GitlabAuthenticationError as e:
+            logger.error(f"获取提交差异失败 - 认证错误 (project_id={project_id}, sha={commit_sha[:8]}): Token 无效或已过期")
+            raise GitLabAuthError(
+                f"获取提交差异失败: Token 认证失败 (项目 ID: {project_id})",
+                project_id=project_id
+            ) from e
         except Exception as e:
-            logger.error(f"获取提交差异失败 (project={project_id}, sha={commit_sha[:8]}): {type(e).__name__}: {e}")
+            logger.error(f"获取提交差异失败 (project_id={project_id}, sha={commit_sha[:8]}): {type(e).__name__}: {e}")
             return []
 
     def get_file_content(
@@ -256,8 +325,13 @@ class GitLabClient:
             project = self.client.projects.get(project_id)
             file = project.files.get(file_path=file_path, ref=ref)
             return file.decode()
+        except gitlab.exceptions.GitlabAuthenticationError as e:
+            logger.error(f"获取文件内容失败 - 认证错误 (file={file_path}): Token 无效或已过期")
+            raise GitLabAuthError(
+                f"获取文件内容失败: Token 认证失败 (文件: {file_path})",
+            ) from e
         except Exception as e:
-            logger.error(f"获取文件内容失败: {file_path}, {e}")
+            logger.error(f"获取文件内容失败 (file={file_path}): {type(e).__name__}: {e}")
             return None
 
     def get_commit_info(
@@ -290,8 +364,13 @@ class GitLabClient:
                 "parent_ids": getattr(commit, 'parent_ids', []),
                 "stats": getattr(commit, 'stats', {})
             }
+        except gitlab.exceptions.GitlabAuthenticationError as e:
+            logger.error(f"获取提交信息失败 - 认证错误 (sha={commit_sha[:8]}): Token 无效或已过期")
+            raise GitLabAuthError(
+                f"获取提交信息失败: Token 认证失败",
+            ) from e
         except Exception as e:
-            logger.error(f"获取提交信息失败: {e}")
+            logger.error(f"获取提交信息失败 (sha={commit_sha[:8]}): {type(e).__name__}: {e}")
             return None
 
     def compare_branches(
@@ -327,6 +406,11 @@ class GitLabClient:
                 "compare_timeout": compare.get("compare_timeout", False),
                 "compare_same_ref": compare.get("compare_same_ref", False)
             }
+        except gitlab.exceptions.GitlabAuthenticationError as e:
+            logger.error(f"比较分支失败 - 认证错误 (from={from_ref}, to={to_ref}): Token 无效或已过期")
+            raise GitLabAuthError(
+                f"比较分支失败: Token 认证失败",
+            ) from e
         except Exception as e:
-            logger.error(f"比较分支失败: {e}")
+            logger.error(f"比较分支失败 (from={from_ref}, to={to_ref}): {type(e).__name__}: {e}")
             return None

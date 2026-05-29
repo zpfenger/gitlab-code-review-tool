@@ -6,7 +6,7 @@ from typing import Optional, Dict, Any, List
 from pathlib import Path
 from loguru import logger
 
-from app.services.gitlab_client import GitLabClient
+from app.services.gitlab_client import GitLabClient, GitLabAuthError
 from app.services.code_reviewer import CodeReviewer
 from app.services.stats_generator import StatsGenerator
 from app.services.report_merger import ReportMerger
@@ -166,6 +166,11 @@ class TaskExecutor:
 
             return self._progress
 
+        except GitLabAuthError:
+            # 认证错误向上抛出，让调用方处理
+            self._progress["status"] = "failed"
+            self._progress["error"] = "GitLab 认证失败"
+            raise
         except Exception as e:
             logger.exception(f"执行每日审查失败: {e}")
             self._progress["status"] = "failed"
