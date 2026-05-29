@@ -232,3 +232,57 @@ class ReviewScheduler:
                 logger.error(f"移除任务失败: {e}")
                 return False
         return False
+
+
+def run_monthly_efficiency_aggregation():
+    """每月1日凌晨执行，汇总上月数据"""
+    from datetime import date
+    from app.database import SessionLocal
+    from app.models import Settings
+    from app.security import security_service
+    from app.services.efficiency_monthly_aggregator import EfficiencyMonthlyAggregator
+
+    today = date.today()
+    # 计算上月
+    if today.month == 1:
+        year = today.year - 1
+        month = 12
+    else:
+        year = today.year
+        month = today.month - 1
+
+    year_month = f"{year}-{month:02d}"
+    logger.info(f"开始月度能效聚合任务: {year_month}")
+
+    db = SessionLocal()
+    try:
+        settings = db.query(Settings).first()
+        if not settings:
+            logger.error("未找到系统配置，跳过月度聚合")
+            return
+
+        llm_cfg = {
+            "api_url": settings.llm_api_url,
+            "api_key": (
+                security_service.decrypt(settings.llm_api_key)
+                if settings.llm_api_key
+                else ""
+            ),
+            "model": settings.llm_model,
+            "timeout": settings.llm_timeout,
+            "max_retries": settings.llm_max_retries,
+            "retry_delay": settings.llm_retry_delay,
+        }
+        top_n = getattr(settings, "efficiency_work_summary_top_n", 10) or 10
+
+        aggregator = EfficiencyMonthlyAggregator(
+            db=db,
+            llm_config=llm_cfg,
+            top_n=top_n,
+        )
+        result = aggregator.aggregate(year_month)
+        logger.info(f"月度能效聚合任务完成: {result}")
+    except Exception as e:
+        logger.exception(f"月度能效聚合任务失败: {e}")
+    finally:
+        db.close()

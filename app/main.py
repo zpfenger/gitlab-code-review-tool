@@ -25,7 +25,7 @@ from app.security import security_service
 from app.database import SessionLocal, init_db
 from app.models import User, Project, Settings, TaskLog
 from sqlalchemy.orm import joinedload
-from app.services.scheduler import ReviewScheduler
+from app.services.scheduler import ReviewScheduler, run_monthly_efficiency_aggregation
 from app.services.task_executor import TaskExecutor
 
 # Import API routers
@@ -98,6 +98,15 @@ async def lifespan(app: FastAPI):
                     job_id='weekly_review'
                 )
                 logger.info(f"Scheduled weekly task: weekday={weekday}, time={settings.weekly_schedule_time}")
+
+            # 注册每月任务
+            scheduler.setup_monthly_task(
+                day=1,
+                time="02:00",
+                callback=run_monthly_efficiency_aggregation,
+                job_id="monthly_efficiency",
+            )
+            logger.info("Scheduled monthly task: monthly_efficiency")
     except Exception as e:
         logger.warning(f"Could not setup scheduler: {e}")
     finally:

@@ -165,18 +165,22 @@ def test_list_sort_by_score(client, db_session, login_as_admin):
 
 
 def test_list_date_range(client, db_session, login_as_admin):
-    """支持日期区间过滤"""
+    """支持日期区间过滤（区间模式按人员聚合）"""
     d1 = date(2026, 5, 25)
     d2 = date(2026, 5, 26)
     d3 = date(2026, 5, 27)
-    _seed(db_session, "a@b.com", "A", d1)
-    _seed(db_session, "a@b.com", "A", d2)
-    _seed(db_session, "a@b.com", "A", d3)
+    _seed(db_session, "a@b.com", "A", d1, commits=3, adds=100, dels=20)
+    _seed(db_session, "a@b.com", "A", d2, commits=4, adds=150, dels=30)
+    _seed(db_session, "a@b.com", "A", d3, commits=5, adds=200, dels=40)
     resp = client.get(
         "/api/efficiency/list?start_date=2026-05-25&end_date=2026-05-26"
     )
     assert resp.status_code == 200
-    assert len(resp.json()["data"]["items"]) == 2
+    items = resp.json()["data"]["items"]
+    # 区间模式：同一人聚合为一行
+    assert len(items) == 1
+    assert items[0]["commits_count"] == 7   # 3+4
+    assert items[0]["additions"] == 250     # 100+150
 
 
 def test_detail_returns_summary_trend_commits(client, db_session,
@@ -217,3 +221,46 @@ def test_list_member_sees_only_self(client, db_session, login_as_member,
     emails = [i["author_email"] for i in items]
     assert member_user.email in emails
     assert "other@x.com" not in emails
+
+
+# ── 区间聚合测试 ──────────────────────────
+
+def test_list_range_aggregation(client, db_session, login_as_admin):
+    """区间查询时按人员聚合（同一人多天合并为一行）"""
+    d1 = date.today() - timedelta(days=3)
+    d2 = date.today() - timedelta(days=2)
+    d3 = date.today() - timedelta(days=1)
+    _seed(db_session, "a@b.com", "Alice", d1, score=80, commits=3, adds=100, dels=20)
+    _seed(db_session, "a@b.com", "Alice", d2, score=90, commits=5, adds=200, dels=50)
+    _seed(db_session, "a@b.com", "Alice", d3, score=70, commits=2, adds=50, dels=10)
+
+    resp = client.get(
+        f"/api/efficiency/list?start_date={d1.isoformat()}"
+        f"&end_date={d3.isoformat()}"
+    )
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    # 同一人聚合为一行
+    assert len(data["items"]) == 1
+    item = data["items"][0]
+    assert item["author_email"] == "a@b.com"
+    assert item["commits_count"] == 10       # 3+5+2
+    assert item["additions"] == 350          # 100+200+50
+    assert item["deletions"] == 80           # 20+50+10
+    # review_score 取算术平均
+    assert item["review_score"] == 80        # (80+90+70)/3 = 80
+    # team_stats 也基于聚合后的数据
+    assert data["team_stats"]["person_count"] == 1
+    assert data["team_stats"]["total_commits"] == 10
+
+
+def test_list_range_single_day_no_aggregation(client, db_session, login_as_admin):
+    """单日查询不聚合（保持现有行为）"""
+    d = date.today() - timedelta(days=1)
+    _seed(db_session, "a@b.com", "Alice", d, score=80, commits=3, adds=100, dels=20)
+
+    resp = client.get(f"/api/efficiency/list?date={d.isoformat()}")
+    assert resp.status_code == 200
+    items = resp.json()["data"]["items"]
+    assert len(items) == 1
+    assert items[0]["commits_count"] == 3

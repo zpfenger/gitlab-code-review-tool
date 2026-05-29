@@ -1,9 +1,12 @@
-/* 人员能效页面 - 数据加载 + ECharts 渲染 + 详情抽屉 */
+/* 人员能效页面 - Tab 切换 + 区间查询 + 月度查询 + 详情弹窗 */
 (function () {
     'use strict';
 
     var STATE = {
-        date: '',
+        mode: 'daily',        // 'daily' | 'monthly'
+        startDate: '',
+        endDate: '',
+        yearMonth: '',
         sort_by: 'score',
         order: 'desc',
         items: [],
@@ -18,7 +21,7 @@
         '待改进': 'grade-poor',
     };
 
-    var chartCodeTop, chartGradePie, chartTrend;
+    var chartCodeTop, chartGradePie, chartTrend, chartMonthlyTrend;
 
     // ── 工具 ──────────────────────────────────────
     function fmtDate(d) {
@@ -34,6 +37,21 @@
         return fmtDate(d);
     }
 
+    function weekStart() {
+        var d = new Date();
+        var day = d.getDay();
+        var diff = day === 0 ? 6 : day - 1;
+        d.setDate(d.getDate() - diff);
+        return fmtDate(d);
+    }
+
+    function currentMonth() {
+        var d = new Date();
+        var y = d.getFullYear();
+        var m = String(d.getMonth() + 1).padStart(2, '0');
+        return y + '-' + m;
+    }
+
     function gradeBadge(grade) {
         var cls = GRADE_CLASS[grade] || 'grade-none';
         return '<span class="grade-badge ' + cls + '">' + (grade || '-') + '</span>';
@@ -46,10 +64,54 @@
         });
     }
 
+    function renderMarkdown(md) {
+        if (typeof marked === 'undefined') return escapeHtml(md);
+        try {
+            return marked.parse(md, { breaks: true, gfm: true });
+        } catch (e) {
+            return escapeHtml(md);
+        }
+    }
+
+    // ── Tab 切换 ──────────────────────────────────
+    window.switchEfficiencyTab = function(el, mode) {
+        // 更新tab状态
+        document.querySelectorAll('.desktop-tab-item').forEach(function(tab) {
+            tab.classList.remove('active');
+        });
+        el.classList.add('active');
+
+        // 更新模式状态
+        STATE.mode = mode;
+        document.getElementById('filterDaily').style.display = mode === 'daily' ? '' : 'none';
+        document.getElementById('filterMonthly').style.display = mode === 'monthly' ? '' : 'none';
+        updateTableHeader();
+        loadData();
+    };
+
+    function switchTab(mode) {
+        STATE.mode = mode;
+        document.querySelectorAll('.desktop-tab-item').forEach(function (t) {
+            t.classList.toggle('active', t.id === 'tab' + mode.charAt(0).toUpperCase() + mode.slice(1));
+        });
+        document.getElementById('filterDaily').style.display = mode === 'daily' ? '' : 'none';
+        document.getElementById('filterMonthly').style.display = mode === 'monthly' ? '' : 'none';
+        loadData();
+    }
+
     // ── 数据加载 ─────────────────────────────────
-    function loadList() {
+    function loadData() {
+        if (STATE.mode === 'daily') {
+            loadDailyList();
+        } else {
+            loadMonthlyList();
+        }
+    }
+
+    function loadDailyList() {
         var params = new URLSearchParams({
-            date: STATE.date,
+            start_date: STATE.startDate,
+            end_date: STATE.endDate,
             sort_by: STATE.sort_by,
             order: STATE.order,
             limit: '500',
@@ -75,7 +137,40 @@
                 renderCharts();
             })
             .catch(function (err) {
-                console.error('loadList failed:', err);
+                console.error('loadDailyList failed:', err);
+                renderEmpty('网络异常，请稍后重试');
+            });
+    }
+
+    function loadMonthlyList() {
+        var params = new URLSearchParams({
+            year_month: STATE.yearMonth,
+            sort_by: STATE.sort_by,
+            order: STATE.order,
+            limit: '500',
+        });
+        apiRequest('/api/efficiency/monthly/list?' + params.toString())
+            .then(function (resp) {
+                if (!resp || !resp.ok) {
+                    renderEmpty('数据加载失败');
+                    return;
+                }
+                return resp.json();
+            })
+            .then(function (json) {
+                if (!json) return;
+                if (!json.success) {
+                    renderEmpty(json.message || '加载失败');
+                    return;
+                }
+                STATE.items = json.data.items || [];
+                STATE.teamStats = json.data.team_stats || {};
+                renderStats();
+                renderMonthlyTable();
+                renderCharts();
+            })
+            .catch(function (err) {
+                console.error('loadMonthlyList failed:', err);
                 renderEmpty('网络异常，请稍后重试');
             });
     }
@@ -92,16 +187,16 @@
 
     // ── 渲染：表格 ───────────────────────────────
     function renderEmpty(msg) {
+        var cols = STATE.mode === 'daily' ? 9 : 10;
         document.getElementById('efficiencyTbody').innerHTML =
-            '<tr><td colspan="9" class="text-center text-muted py-4">' + msg + '</td></tr>';
+            '<tr><td colspan="' + cols + '" class="text-center text-muted py-4">' + msg + '</td></tr>';
     }
 
     function renderTable() {
+        // 按天模式表格（区间汇总）
         if (!STATE.items.length) {
             var hint = STATE.isAdmin ? '请点击右上方"立即补算"。' : '请联系管理员。';
-            document.getElementById('efficiencyTbody').innerHTML =
-                '<tr><td colspan="9" class="text-center text-muted py-4">' +
-                '该日数据未生成。' + hint + '</td></tr>';
+            renderEmpty('该日期范围无数据。' + hint);
             return;
         }
         var rows = STATE.items.map(function (it) {
@@ -119,10 +214,47 @@
                 '</tr>';
         }).join('');
         document.getElementById('efficiencyTbody').innerHTML = rows;
-        // 行点击 → 抽屉
+
+        // 区间模式：点击行 → 弹窗显示每日明细
+        var isRange = STATE.startDate !== STATE.endDate;
         document.querySelectorAll('#efficiencyTbody tr[data-email]').forEach(function (tr) {
             tr.addEventListener('click', function () {
-                openDrawer(tr.dataset.email);
+                if (isRange) {
+                    openRangeDetailModal(tr.dataset.email);
+                } else {
+                    openDrawer(tr.dataset.email);
+                }
+            });
+        });
+    }
+
+    function renderMonthlyTable() {
+        // 按月模式表格
+        if (!STATE.items.length) {
+            renderEmpty('该月无数据。请点击"立即补算"生成月度汇总。');
+            return;
+        }
+        var rows = STATE.items.map(function (it) {
+            return '<tr data-email="' + escapeHtml(it.author_email) + '">' +
+                '<td>' + escapeHtml(it.author_name) + '</td>' +
+                '<td><span class="text-muted small">' + escapeHtml(it.author_email) + '</span></td>' +
+                '<td>' + escapeHtml(it.active_days) + '</td>' +
+                '<td>' + escapeHtml(it.commits_count) + '</td>' +
+                '<td class="text-success">+' + escapeHtml(it.additions) + '</td>' +
+                '<td class="text-danger">-' + escapeHtml(it.deletions) + '</td>' +
+                '<td>' + escapeHtml(it.files_changed) + '</td>' +
+                '<td>' + (it.review_score != null ? escapeHtml(it.review_score) : '-') + '</td>' +
+                '<td>' + gradeBadge(it.review_grade) + '</td>' +
+                '<td><span class="text-muted small">' +
+                escapeHtml((it.projects_involved || []).join('，')) + '</span></td>' +
+                '</tr>';
+        }).join('');
+        document.getElementById('efficiencyTbody').innerHTML = rows;
+
+        // 点击行 → 月度详情弹窗
+        document.querySelectorAll('#efficiencyTbody tr[data-email]').forEach(function (tr) {
+            tr.addEventListener('click', function () {
+                openMonthlyDetailModal(tr.dataset.email);
             });
         });
     }
@@ -148,14 +280,10 @@
             xAxis: { type: 'value' },
             yAxis: { type: 'category', data: top.map(function (t) { return t.author_name; }) },
             series: [
-                {
-                    name: '新增', type: 'bar', stack: 'total', color: '#28a745',
-                    data: top.map(function (t) { return t.additions; }),
-                },
-                {
-                    name: '删除', type: 'bar', stack: 'total', color: '#dc3545',
-                    data: top.map(function (t) { return t.deletions; }),
-                },
+                { name: '新增', type: 'bar', stack: 'total', color: '#28a745',
+                  data: top.map(function (t) { return t.additions; }) },
+                { name: '删除', type: 'bar', stack: 'total', color: '#dc3545',
+                  data: top.map(function (t) { return t.deletions; }) },
             ],
         });
     }
@@ -184,17 +312,225 @@
         });
     }
 
-    // ── 详情抽屉 ─────────────────────────────────
-    function openDrawer(email) {
+    // ── 区间明细弹窗 ─────────────────────────────
+    function openRangeDetailModal(email) {
+        var modal = document.getElementById('rangeDetailModal');
+        modal.classList.add('active');
+        document.getElementById('rangeModalTitle').textContent =
+            email + ' (' + STATE.startDate + ' ~ ' + STATE.endDate + ')';
+        document.getElementById('rangeModalBody').innerHTML =
+            '<div class="text-muted">加载中...</div>';
+
+        var params = new URLSearchParams({
+            email: email,
+            start_date: STATE.startDate,
+            end_date: STATE.endDate,
+        });
+        apiRequest('/api/efficiency/detail?' + params.toString())
+            .then(function (resp) {
+                if (!resp || !resp.ok) {
+                    document.getElementById('rangeModalBody').innerHTML =
+                        '<div class="text-danger">加载失败</div>';
+                    return;
+                }
+                return resp.json();
+            })
+            .then(function (json) {
+                if (json) renderRangeDetailModal(json.data || {}, email);
+            })
+            .catch(function () {
+                document.getElementById('rangeModalBody').innerHTML =
+                    '<div class="text-danger">网络异常</div>';
+            });
+    }
+
+    function renderRangeDetailModal(data, email) {
+        var items = data.daily_items || [];
+        if (!items.length) {
+            document.getElementById('rangeModalBody').innerHTML =
+                '<div class="text-muted">该区间无数据</div>';
+            return;
+        }
+
+        var tableRows = items.map(function (d) {
+            return '<tr data-date="' + escapeHtml(d.stat_date) + '" style="cursor:pointer;">' +
+                '<td>' + escapeHtml(d.stat_date) + '</td>' +
+                '<td>' + escapeHtml(d.commits_count) + '</td>' +
+                '<td class="text-success">+' + escapeHtml(d.additions) + '</td>' +
+                '<td class="text-danger">-' + escapeHtml(d.deletions) + '</td>' +
+                '<td>' + escapeHtml(d.files_changed) + '</td>' +
+                '<td>' + (d.review_score != null ? escapeHtml(d.review_score) : '-') + '</td>' +
+                '<td>' + gradeBadge(d.review_grade) + '</td>' +
+                '</tr>';
+        }).join('');
+
+        var html =
+            '<div class="text-muted small mb-2">区间每日明细（点击行查看详情）</div>' +
+            '<table class="daily-detail-table">' +
+            '<thead><tr>' +
+            '<th>日期</th><th>提交</th><th>新增</th><th>删除</th><th>文件</th><th>评分</th><th>等级</th>' +
+            '</tr></thead>' +
+            '<tbody>' + tableRows + '</tbody></table>';
+
+        document.getElementById('rangeModalBody').innerHTML = html;
+
+        // 点击行 → 关闭弹窗，打开详情抽屉
+        document.querySelectorAll('#rangeModalBody tr[data-date]').forEach(function (tr) {
+            tr.addEventListener('click', function () {
+                var selectedDate = tr.dataset.date;
+                closeRangeDetailModal();
+                openDrawerForDate(email, selectedDate);
+            });
+        });
+    }
+
+    function closeRangeDetailModal() {
+        document.getElementById('rangeDetailModal').classList.remove('active');
+    }
+
+    // ── 月度详情弹窗 ─────────────────────────────
+    function openMonthlyDetailModal(email) {
+        var modal = document.getElementById('monthlyDetailModal');
+        modal.classList.add('active');
+        document.getElementById('monthlyModalTitle').textContent =
+            email + ' ' + STATE.yearMonth + ' 月度详情';
+        document.getElementById('monthlyModalBody').innerHTML =
+            '<div class="text-muted">加载中...</div>';
+
+        var params = new URLSearchParams({
+            email: email,
+            year_month: STATE.yearMonth,
+        });
+        apiRequest('/api/efficiency/monthly/detail?' + params.toString())
+            .then(function (resp) {
+                if (!resp || !resp.ok) {
+                    document.getElementById('monthlyModalBody').innerHTML =
+                        '<div class="text-danger">加载失败</div>';
+                    return;
+                }
+                return resp.json();
+            })
+            .then(function (json) {
+                if (json) renderMonthlyDetailModal(json.data || {});
+            })
+            .catch(function () {
+                document.getElementById('monthlyModalBody').innerHTML =
+                    '<div class="text-danger">网络异常</div>';
+            });
+    }
+
+    function renderMonthlyDetailModal(data) {
+        var s = data.summary || {};
+        var trend = data.daily_trend || [];
+        var work = s.work_summary || [];
+
+        var workHtml = '';
+        if (work.length) {
+            var markdownContent = work.map(function (w) { return '- ' + w; }).join('\n');
+            workHtml = '<div class="markdown-body">' + renderMarkdown(markdownContent) + '</div>';
+        } else {
+            workHtml = '<div class="text-muted">无</div>';
+        }
+
+        var html =
+            '<div class="mb-3" style="display:flex; gap:var(--space-4); align-items:center;">' +
+            '  <div style="font-size:2rem; font-weight:700; color:var(--color-primary);">' +
+            (s.review_score != null ? escapeHtml(s.review_score) : '-') + '</div>' +
+            '  ' + gradeBadge(s.review_grade) +
+            '  <span class="text-muted">活跃 ' + (s.active_days || 0) + ' 天</span>' +
+            '</div>' +
+            '<div class="mb-3">' +
+            '  <div class="text-muted small">月度评分简述</div>' +
+            '  <div class="markdown-body">' + renderMarkdown(s.review_summary || '-') + '</div>' +
+            '</div>' +
+            '<div class="mb-3">' +
+            '  <div class="text-muted small">月度主要工作</div>' +
+            '  ' + workHtml +
+            '</div>' +
+            '<div class="mb-3">' +
+            '  <div class="text-muted small mb-2">每日趋势</div>' +
+            '  <div id="chartMonthlyTrend" style="width:100%;height:280px;"></div>' +
+            '</div>';
+        document.getElementById('monthlyModalBody').innerHTML = html;
+        renderMonthlyTrendChart(trend);
+    }
+
+    function renderMonthlyTrendChart(trend) {
+        if (chartMonthlyTrend) { chartMonthlyTrend.dispose(); chartMonthlyTrend = null; }
+        var el = document.getElementById('chartMonthlyTrend');
+        if (!el) return;
+        chartMonthlyTrend = echarts.init(el);
+        chartMonthlyTrend.setOption({
+            tooltip: { trigger: 'axis' },
+            legend: { data: ['新增', '删除', '评分'] },
+            grid: { left: 40, right: 40, top: 30, bottom: 30 },
+            xAxis: { type: 'category', data: trend.map(function (t) { return t.stat_date; }) },
+            yAxis: [
+                { type: 'value', name: '代码量' },
+                { type: 'value', name: '评分', min: 0, max: 100 },
+            ],
+            series: [
+                { name: '新增', type: 'line', color: '#28a745',
+                  data: trend.map(function (t) { return t.additions; }) },
+                { name: '删除', type: 'line', color: '#dc3545',
+                  data: trend.map(function (t) { return t.deletions; }) },
+                { name: '评分', type: 'line', yAxisIndex: 1, color: '#0d6efd',
+                  data: trend.map(function (t) { return t.review_score; }),
+                  markLine: { data: [
+                      { yAxis: 90, lineStyle: { color: '#28a745', type: 'dashed' } },
+                      { yAxis: 60, lineStyle: { color: '#dc3545', type: 'dashed' } },
+                  ] } },
+            ],
+        });
+    }
+
+    function closeMonthlyDetailModal() {
+        document.getElementById('monthlyDetailModal').classList.remove('active');
+        if (chartMonthlyTrend) { chartMonthlyTrend.dispose(); chartMonthlyTrend = null; }
+    }
+
+    // ── 详情抽屉（复用现有） ─────────────────────
+    function openDrawerForDate(email, dateStr) {
         document.getElementById('drawerOverlay').classList.add('active');
         document.getElementById('detailDrawer').classList.add('active');
-        document.getElementById('drawerTitle').textContent = email + ' (' + STATE.date + ')';
+        document.getElementById('drawerTitle').textContent = email + ' (' + dateStr + ')';
         document.getElementById('drawerBody').innerHTML =
             '<div class="text-muted">加载中...</div>';
 
         var params = new URLSearchParams({
             email: email,
-            date: STATE.date,
+            date: dateStr,
+            trend_days: '7',
+        });
+        apiRequest('/api/efficiency/detail?' + params.toString())
+            .then(function (resp) {
+                if (!resp || !resp.ok) {
+                    document.getElementById('drawerBody').innerHTML =
+                        '<div class="text-danger">加载详情失败</div>';
+                    return;
+                }
+                return resp.json();
+            })
+            .then(function (json) {
+                if (json) renderDrawer(json.data || {});
+            })
+            .catch(function (err) {
+                console.error('openDrawerForDate failed:', err);
+                document.getElementById('drawerBody').innerHTML =
+                    '<div class="text-danger">网络异常，请稍后重试</div>';
+            });
+    }
+
+    function openDrawer(email) {
+        document.getElementById('drawerOverlay').classList.add('active');
+        document.getElementById('detailDrawer').classList.add('active');
+        document.getElementById('drawerTitle').textContent = email + ' (' + STATE.startDate + ')';
+        document.getElementById('drawerBody').innerHTML =
+            '<div class="text-muted">加载中...</div>';
+
+        var params = new URLSearchParams({
+            email: email,
+            date: STATE.startDate,
             trend_days: '7',
         });
         apiRequest('/api/efficiency/detail?' + params.toString())
@@ -222,9 +558,13 @@
         var commits = data.commits || [];
         var trend = data.trend || [];
 
-        var workHtml = work.length
-            ? work.map(function (w) { return '<li>' + escapeHtml(w) + '</li>'; }).join('')
-            : '<li class="text-muted">无</li>';
+        var workHtml = '';
+        if (work.length) {
+            var markdownContent = work.map(function (w) { return '- ' + w; }).join('\n');
+            workHtml = '<div class="markdown-body">' + renderMarkdown(markdownContent) + '</div>';
+        } else {
+            workHtml = '<div class="text-muted">无</div>';
+        }
 
         var commitHtml = commits.length
             ? commits.map(function (c) {
@@ -243,11 +583,11 @@
             '</div>' +
             '<div class="mb-3">' +
             '  <div class="text-muted small">评分简述</div>' +
-            '  <div>' + escapeHtml(s.review_summary || '-') + '</div>' +
+            '  <div class="markdown-body">' + renderMarkdown(s.review_summary || '-') + '</div>' +
             '</div>' +
             '<div class="mb-3">' +
             '  <div class="text-muted small">今日主要工作</div>' +
-            '  <ol class="mb-0">' + workHtml + '</ol>' +
+            '  ' + workHtml +
             '</div>' +
             '<div class="mb-3">' +
             '  <div class="text-muted small mb-2">近 7 天趋势</div>' +
@@ -276,24 +616,16 @@
                 { type: 'value', name: '评分', min: 0, max: 100 },
             ],
             series: [
-                {
-                    name: '新增', type: 'line', color: '#28a745',
-                    data: trend.map(function (t) { return t.additions; }),
-                },
-                {
-                    name: '删除', type: 'line', color: '#dc3545',
-                    data: trend.map(function (t) { return t.deletions; }),
-                },
-                {
-                    name: '评分', type: 'line', yAxisIndex: 1, color: '#0d6efd',
-                    data: trend.map(function (t) { return t.review_score; }),
-                    markLine: {
-                        data: [
-                            { yAxis: 90, lineStyle: { color: '#28a745', type: 'dashed' } },
-                            { yAxis: 60, lineStyle: { color: '#dc3545', type: 'dashed' } },
-                        ],
-                    },
-                },
+                { name: '新增', type: 'line', color: '#28a745',
+                  data: trend.map(function (t) { return t.additions; }) },
+                { name: '删除', type: 'line', color: '#dc3545',
+                  data: trend.map(function (t) { return t.deletions; }) },
+                { name: '评分', type: 'line', yAxisIndex: 1, color: '#0d6efd',
+                  data: trend.map(function (t) { return t.review_score; }),
+                  markLine: { data: [
+                      { yAxis: 90, lineStyle: { color: '#28a745', type: 'dashed' } },
+                      { yAxis: 60, lineStyle: { color: '#dc3545', type: 'dashed' } },
+                  ] } },
             ],
         });
     }
@@ -301,7 +633,6 @@
     function closeDrawer() {
         document.getElementById('drawerOverlay').classList.remove('active');
         document.getElementById('detailDrawer').classList.remove('active');
-        // 销毁抽屉内的图表，避免内存泄漏
         if (chartTrend) { chartTrend.dispose(); chartTrend = null; }
     }
 
@@ -320,12 +651,89 @@
                     t.classList.remove('sorted');
                 });
                 th.classList.add('sorted');
-                loadList();
+                loadData();
             });
         });
     }
 
-    // ── 补算按钮（仅管理员） ───────────────────
+    // ── 补算按钮 ────────────────────────────────
+    function openRecomputeModal() {
+        var desc = STATE.mode === 'monthly'
+            ? '补算 ' + STATE.yearMonth + ' 的月度能效数据'
+            : '补算 ' + STATE.startDate + ' ~ ' + STATE.endDate + ' 的人员能效数据';
+        document.getElementById('recomputeModalDesc').textContent = desc;
+        document.getElementById('recomputeForce').checked = false;
+        document.getElementById('recomputeModal').classList.add('active');
+    }
+
+    function closeRecomputeModal() {
+        document.getElementById('recomputeModal').classList.remove('active');
+    }
+
+    function confirmRecompute() {
+        var force = document.getElementById('recomputeForce').checked;
+        closeRecomputeModal();
+
+        var btn = document.getElementById('btnRecompute');
+        btn.disabled = true;
+
+        if (STATE.mode === 'monthly') {
+            apiRequest('/api/efficiency/recompute_monthly', {
+                method: 'POST',
+                body: JSON.stringify({ year_month: STATE.yearMonth, force: force }),
+            })
+                .then(function (r) {
+                    if (r && r.ok) {
+                        showNotification('月度补算完成', 'success');
+                        loadData();
+                    } else {
+                        showNotification('月度补算失败', 'danger');
+                    }
+                })
+                .catch(function () {
+                    showNotification('补算请求失败', 'danger');
+                })
+                .finally(function () {
+                    btn.disabled = false;
+                });
+        } else {
+            apiRequest('/api/efficiency/recompute', {
+                method: 'POST',
+                body: JSON.stringify({
+                    start_date: STATE.startDate,
+                    end_date: STATE.endDate,
+                    force: force,
+                }),
+            })
+                .then(function (r) {
+                    if (!r || !r.ok) {
+                        showNotification('补算失败', 'danger');
+                        return;
+                    }
+                    return r.json();
+                })
+                .then(function (json) {
+                    if (!json) return;
+                    if (json.success) {
+                        var d = json.data || {};
+                        var msg = '补算完成：处理 ' + (d.processed || []).length + ' 天，'
+                            + '跳过 ' + (d.skipped || []).length + ' 天，'
+                            + '失败 ' + (d.failed || []).length + ' 天';
+                        showNotification(msg, 'success');
+                        loadData();
+                    } else {
+                        showNotification(json.message || '补算失败', 'danger');
+                    }
+                })
+                .catch(function () {
+                    showNotification('补算请求失败', 'danger');
+                })
+                .finally(function () {
+                    btn.disabled = false;
+                });
+        }
+    }
+
     function checkAdminAndBindRecompute() {
         apiRequest('/api/auth/me')
             .then(function (resp) {
@@ -342,53 +750,99 @@
             .catch(function (err) {
                 console.error('checkAdmin failed:', err);
             });
-        document.getElementById('btnRecompute').addEventListener('click', function () {
-            if (!confirm('确认补算 ' + STATE.date + ' 的人员能效？')) return;
-            var btn = document.getElementById('btnRecompute');
-            btn.disabled = true;
-            apiRequest('/api/efficiency/recompute', {
-                method: 'POST',
-                body: JSON.stringify({ date: STATE.date, force: false }),
-            })
-                .then(function (r) {
-                    if (r && r.ok) {
-                        showNotification('补算完成', 'success');
-                        loadList();
-                    } else {
-                        showNotification('补算失败', 'danger');
-                    }
-                })
-                .catch(function (err) {
-                    console.error('recompute failed:', err);
-                    showNotification('补算请求失败', 'danger');
-                })
-                .finally(function () {
-                    btn.disabled = false;
-                });
+
+        document.getElementById('btnRecompute').addEventListener('click', openRecomputeModal);
+        document.getElementById('recomputeConfirm').addEventListener('click', confirmRecompute);
+        document.getElementById('recomputeCancel').addEventListener('click', closeRecomputeModal);
+        document.getElementById('recomputeModalClose').addEventListener('click', closeRecomputeModal);
+        document.getElementById('recomputeModal').addEventListener('click', function (e) {
+            if (e.target === this) closeRecomputeModal();
         });
     }
 
-    // ── 窗口 resize → 图表自适应 ────────────────
+    // ── 窗口 resize ─────────────────────────────
     function handleResize() {
         if (chartCodeTop) chartCodeTop.resize();
         if (chartGradePie) chartGradePie.resize();
         if (chartTrend) chartTrend.resize();
+        if (chartMonthlyTrend) chartMonthlyTrend.resize();
+    }
+
+    // ── 表头适配月度模式 ────────────────────────
+    function updateTableHeader() {
+        var thead = document.querySelector('#efficiencyTable thead tr');
+        if (STATE.mode === 'monthly') {
+            thead.innerHTML =
+                '<th style="min-width:100px;">姓名</th>' +
+                '<th style="min-width:160px;">邮箱</th>' +
+                '<th style="min-width:70px;" data-sort="active_days">活跃天数 <i class="bi bi-arrow-down-up sort-icon"></i></th>' +
+                '<th style="min-width:80px;" data-sort="commits">提交 <i class="bi bi-arrow-down-up sort-icon"></i></th>' +
+                '<th style="min-width:80px;" data-sort="additions">新增 <i class="bi bi-arrow-down-up sort-icon"></i></th>' +
+                '<th style="min-width:80px;" data-sort="deletions">删除 <i class="bi bi-arrow-down-up sort-icon"></i></th>' +
+                '<th style="min-width:70px;" data-sort="files_changed">文件 <i class="bi bi-arrow-down-up sort-icon"></i></th>' +
+                '<th style="min-width:70px;" data-sort="score" class="sorted">评分 <i class="bi bi-arrow-down-up sort-icon"></i></th>' +
+                '<th style="min-width:70px;">等级</th>' +
+                '<th style="min-width:140px;">涉及项目</th>';
+        } else {
+            thead.innerHTML =
+                '<th style="min-width:100px;">姓名</th>' +
+                '<th style="min-width:160px;">邮箱</th>' +
+                '<th style="min-width:80px;" data-sort="commits">提交 <i class="bi bi-arrow-down-up sort-icon"></i></th>' +
+                '<th style="min-width:80px;" data-sort="additions">新增 <i class="bi bi-arrow-down-up sort-icon"></i></th>' +
+                '<th style="min-width:80px;" data-sort="deletions">删除 <i class="bi bi-arrow-down-up sort-icon"></i></th>' +
+                '<th style="min-width:70px;" data-sort="files_changed">文件 <i class="bi bi-arrow-down-up sort-icon"></i></th>' +
+                '<th style="min-width:70px;" data-sort="score" class="sorted">评分 <i class="bi bi-arrow-down-up sort-icon"></i></th>' +
+                '<th style="min-width:70px;">等级</th>' +
+                '<th style="min-width:140px;">涉及项目</th>';
+        }
+        bindSort();
     }
 
     // ── 入口 ─────────────────────────────────────
     document.addEventListener('DOMContentLoaded', function () {
-        STATE.date = yesterday();
-        document.getElementById('filterDate').value = STATE.date;
-        document.getElementById('filterDate').addEventListener('change', function (e) {
-            STATE.date = e.target.value || yesterday();
-            loadList();
+        // 初始化日期
+        STATE.startDate = weekStart();
+        STATE.endDate = yesterday();
+        STATE.yearMonth = currentMonth();
+
+        document.getElementById('startDate').value = STATE.startDate;
+        document.getElementById('endDate').value = STATE.endDate;
+        document.getElementById('filterMonth').value = STATE.yearMonth;
+
+
+        // 日期变化
+        document.getElementById('startDate').addEventListener('change', function (e) {
+            STATE.startDate = e.target.value || yesterday();
+            loadData();
         });
-        document.getElementById('btnRefresh').addEventListener('click', loadList);
+        document.getElementById('endDate').addEventListener('change', function (e) {
+            STATE.endDate = e.target.value || yesterday();
+            loadData();
+        });
+        document.getElementById('filterMonth').addEventListener('change', function (e) {
+            STATE.yearMonth = e.target.value || currentMonth();
+            loadData();
+        });
+
+        document.getElementById('btnRefresh').addEventListener('click', loadData);
+
+        // 弹窗关闭
+        document.getElementById('rangeModalClose').addEventListener('click', closeRangeDetailModal);
+        document.getElementById('rangeDetailModal').addEventListener('click', function (e) {
+            if (e.target === this) closeRangeDetailModal();
+        });
+        document.getElementById('monthlyModalClose').addEventListener('click', closeMonthlyDetailModal);
+        document.getElementById('monthlyDetailModal').addEventListener('click', function (e) {
+            if (e.target === this) closeMonthlyDetailModal();
+        });
+
+        // 抽屉关闭
         document.getElementById('drawerClose').addEventListener('click', closeDrawer);
         document.getElementById('drawerOverlay').addEventListener('click', closeDrawer);
+
         bindSort();
         checkAdminAndBindRecompute();
-        loadList();
+        loadData();
         window.addEventListener('resize', throttle(handleResize, 150));
     });
 })();

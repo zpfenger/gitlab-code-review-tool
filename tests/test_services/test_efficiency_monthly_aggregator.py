@@ -73,6 +73,7 @@ def test_aggregate_single_author(session, llm_mock):
     agg = EfficiencyMonthlyAggregator(
         db=session,
         llm_config={"api_url": "x", "api_key": "x", "model": "m"},
+        llm_interval=0,
     )
     result = agg.aggregate("2026-05")
 
@@ -100,6 +101,7 @@ def test_review_score_arithmetic_average(session, llm_mock):
     agg = EfficiencyMonthlyAggregator(
         db=session,
         llm_config={"api_url": "x", "api_key": "x", "model": "m"},
+        llm_interval=0,
     )
     # mock 返回的 score 会被覆盖为算术平均
     llm_mock.return_value["score"] = 0  # 故意设为 0
@@ -120,6 +122,7 @@ def test_projects_merge_dedup(session, llm_mock):
     agg = EfficiencyMonthlyAggregator(
         db=session,
         llm_config={"api_url": "x", "api_key": "x", "model": "m"},
+        llm_interval=0,
     )
     agg.aggregate("2026-05")
 
@@ -135,6 +138,7 @@ def test_upsert_idempotent(session, llm_mock):
     agg = EfficiencyMonthlyAggregator(
         db=session,
         llm_config={"api_url": "x", "api_key": "x", "model": "m"},
+        llm_interval=0,
     )
     agg.aggregate("2026-05")
     agg.aggregate("2026-05")
@@ -156,6 +160,7 @@ def test_llm_failure_records_error(session):
         agg = EfficiencyMonthlyAggregator(
             db=session,
             llm_config={"api_url": "x", "api_key": "x", "model": "m"},
+            llm_interval=0,
         )
         agg.aggregate("2026-05")
 
@@ -175,6 +180,7 @@ def test_multi_author_aggregation(session, llm_mock):
     agg = EfficiencyMonthlyAggregator(
         db=session,
         llm_config={"api_url": "x", "api_key": "x", "model": "m"},
+        llm_interval=0,
     )
     result = agg.aggregate("2026-05")
 
@@ -192,6 +198,7 @@ def test_empty_month_returns_zero(session, llm_mock):
     agg = EfficiencyMonthlyAggregator(
         db=session,
         llm_config={"api_url": "x", "api_key": "x", "model": "m"},
+        llm_interval=0,
     )
     result = agg.aggregate("2026-05")
     assert result["authors_total"] == 0
@@ -215,6 +222,7 @@ def test_json_defensive_parsing(session, llm_mock):
     agg = EfficiencyMonthlyAggregator(
         db=session,
         llm_config={"api_url": "x", "api_key": "x", "model": "m"},
+        llm_interval=0,
     )
     # 不应抛异常
     result = agg.aggregate("2026-05")
