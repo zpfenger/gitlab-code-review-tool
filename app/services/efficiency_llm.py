@@ -61,6 +61,54 @@ EFFICIENCY_USER_PROMPT = """以下是员工 {author_name} 当日的代码提交�
 请按系统提示的格式输出评分简述、评分明细、主要工作（不超过 {top_n} 条）和总分。"""
 
 
+# ── 月度 Prompt 模板 ──────────────────────────────────
+EFFICIENCY_MONTHLY_SYSTEM_PROMPT = """你是一位资深的软件开发工程师，需要对员工 {author_name} 在 {year_month} 月度的代码提交进行综合评审，并总结本月主要工作成果。
+
+### 评分目标：
+1. 注释（5分）：注释要"有用"不冗余，只注释"为什么这么做"
+2. 业务逻辑校验（30分）：是否符合需求文档的核心规则、异常处理是否合理
+3. 性能优化点（40分）：是否存在性能瓶颈、缓存策略是否合理
+4. 安全风险排查（10分）：是否存在安全漏洞、敏感数据脱敏
+5. 代码架构与扩展性（10分）：是否遵循 SOLID、有无过度耦合
+6. 编码规范（5分）：命名/注释/格式统一性
+
+### 输出格式（严格按照）：
+请按以下 Markdown 结构输出，确保所有标记都存在，便于程序解析：
+
+## 月度评分简述
+（2-3 句话概括本月整体表现和代码质量趋势）
+
+## 月度评分明细
+- 注释（5分）：x 分，说明
+- 业务逻辑校验（30分）：x 分，说明
+- 性能优化点（40分）：x 分，说明
+- 安全风险排查（10分）：x 分，说明
+- 代码架构与扩展性（10分）：x 分，说明
+- 编码规范（5分）：x 分，说明
+
+## 月度主要工作（不超过 {top_n} 条）
+1. xxx
+2. xxx
+（按对业务的影响和工作量排序）
+
+## 月度总分：XX 分
+"""
+
+
+EFFICIENCY_MONTHLY_USER_PROMPT = """以下是员工 {author_name} 在 {year_month} 的代码提交数据概览。
+
+### 本月数据：
+- 活跃天数：{active_days} 天
+- 提交次数：{commits_count} 次
+- 代码变更：+{additions} / -{deletions}
+- 涉及项目：{projects}
+
+### 每日评分详情：
+{daily_scores_summary}
+
+请按系统提示的格式输出月度评分简述、月度评分明细、月度主要工作（不超过 {top_n} 条）和月度总分。"""
+
+
 # ── 等级映射 ──────────────────────────────────────────
 def map_score_to_grade(score: Optional[int]) -> Optional[str]:
     """根据分数映射到等级"""
@@ -78,9 +126,9 @@ def map_score_to_grade(score: Optional[int]) -> Optional[str]:
 # ── 解析函数 ──────────────────────────────────────────
 # 支持多种格式：总分：85分、总分: 85 分、总分85分、总得分：85分
 _SCORE_PATTERN = re.compile(r"总[得]?分[:：]?\s*(\d+)\s*分?")
-_WORK_HEADER_PATTERN = re.compile(r"##\s*主要工作.*?\n(.+?)(?=\n##|\Z)", re.DOTALL)
+_WORK_HEADER_PATTERN = re.compile(r"##\s*[^\n]*?主要工作.*?\n(.+?)(?=\n##|\Z)", re.DOTALL)
 _WORK_ITEM_PATTERN = re.compile(r"^\s*(?:\d+[.、)]|\-|\*)\s*(.+?)\s*$", re.MULTILINE)
-_REVIEW_SUMMARY_PATTERN = re.compile(r"##\s*评分简述.*?\n(.+?)(?=\n##|\Z)", re.DOTALL)
+_REVIEW_SUMMARY_PATTERN = re.compile(r"##\s*[^\n]*?评分简述.*?\n(.+?)(?=\n##|\Z)", re.DOTALL)
 
 
 def parse_score(text: str) -> int:
@@ -132,6 +180,28 @@ def build_user_prompt(author_name: str, commits_text: str,
         author_name=author_name,
         commits_text=commits_text or "(无)",
         diffs_text=diffs_text or "(无)",
+        top_n=top_n,
+    )
+
+
+# ── 月度 Prompt 构造 ───────────────────────────────────
+def build_monthly_system_prompt(author_name: str, year_month: str,
+                                 top_n: int = 10) -> str:
+    return EFFICIENCY_MONTHLY_SYSTEM_PROMPT.format(
+        author_name=author_name, year_month=year_month, top_n=top_n,
+    )
+
+
+def build_monthly_user_prompt(author_name: str, year_month: str,
+                               active_days: int, commits_count: int,
+                               additions: int, deletions: int,
+                               projects: str, daily_scores_summary: str,
+                               top_n: int = 10) -> str:
+    return EFFICIENCY_MONTHLY_USER_PROMPT.format(
+        author_name=author_name, year_month=year_month,
+        active_days=active_days, commits_count=commits_count,
+        additions=additions, deletions=deletions,
+        projects=projects, daily_scores_summary=daily_scores_summary,
         top_n=top_n,
     )
 
@@ -259,6 +329,131 @@ def call_and_parse(
     score = parse_score(raw)
     if score == 0:
         logger.warning(f"评分解析失败 [{author_name}]，LLM 输出可能格式不符")
+
+    return {
+        "raw": raw,
+        "score": score,
+        "grade": map_score_to_grade(score) if score > 0 else None,
+        "work_summary": parse_work_summary(raw, top_n=top_n),
+        "review_summary": parse_review_summary(raw),
+        "success": True,
+    }
+
+
+# ── 月度 LLM 调用 ──────────────────────────────────────
+def call_monthly_llm(
+    *,
+    api_url: str,
+    api_key: str,
+    model: str,
+    author_name: str,
+    year_month: str,
+    active_days: int,
+    commits_count: int,
+    additions: int,
+    deletions: int,
+    projects: str,
+    daily_scores_summary: str,
+    top_n: int = 10,
+    max_tokens: int = 4096,
+    temperature: float = 0.7,
+    timeout: int = 240,
+    max_retries: int = 3,
+    retry_delay: int = 10,
+) -> Optional[str]:
+    """同步调用 LLM 生成月度总结，返回原始 markdown 文本"""
+    import time
+
+    messages = [
+        {"role": "system", "content": build_monthly_system_prompt(
+            author_name=author_name, year_month=year_month, top_n=top_n,
+        )},
+        {"role": "user", "content": build_monthly_user_prompt(
+            author_name=author_name, year_month=year_month,
+            active_days=active_days, commits_count=commits_count,
+            additions=additions, deletions=deletions,
+            projects=projects, daily_scores_summary=daily_scores_summary,
+            top_n=top_n,
+        )},
+    ]
+
+    for attempt in range(max_retries):
+        try:
+            with httpx.Client(timeout=timeout) as client:
+                resp = client.post(
+                    api_url,
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": model,
+                        "messages": messages,
+                        "temperature": temperature,
+                        "max_tokens": max_tokens,
+                    },
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                content = (data.get("choices", [{}])[0]
+                              .get("message", {})
+                              .get("content"))
+                if content:
+                    return content
+                logger.warning("月度 LLM 返回空内容")
+                return None
+        except httpx.TimeoutException:
+            logger.warning(f"月度 LLM 请求超时 (尝试 {attempt + 1}/{max_retries})")
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay)
+        except httpx.HTTPStatusError as e:
+            logger.error(f"月度 LLM 请求失败: {e.response.status_code}")
+            return None
+        except Exception as e:
+            logger.error(f"月度 LLM 请求异常: {type(e).__name__}: {e}")
+            return None
+
+    logger.error("月度 LLM 达到最大重试次数")
+    return None
+
+
+def call_and_parse_monthly(
+    *,
+    api_url: str,
+    api_key: str,
+    model: str,
+    author_name: str,
+    year_month: str,
+    active_days: int,
+    commits_count: int,
+    additions: int,
+    deletions: int,
+    projects: str,
+    daily_scores_summary: str,
+    top_n: int = 10,
+    **llm_kwargs,
+) -> Dict[str, object]:
+    """调用月度 LLM 并解析结果"""
+    raw = call_monthly_llm(
+        api_url=api_url, api_key=api_key, model=model,
+        author_name=author_name, year_month=year_month,
+        active_days=active_days, commits_count=commits_count,
+        additions=additions, deletions=deletions,
+        projects=projects, daily_scores_summary=daily_scores_summary,
+        top_n=top_n, **llm_kwargs,
+    )
+    if raw is None:
+        return {
+            "raw": None, "score": 0, "grade": None,
+            "work_summary": [], "review_summary": "",
+            "success": False,
+        }
+
+    logger.debug(f"月度 LLM 原始输出 [{author_name}/{year_month}]: {raw[:500]}...")
+
+    score = parse_score(raw)
+    if score == 0:
+        logger.warning(f"月度评分解析失败 [{author_name}/{year_month}]")
 
     return {
         "raw": raw,
