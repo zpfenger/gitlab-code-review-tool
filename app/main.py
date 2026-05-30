@@ -25,12 +25,12 @@ from app.security import security_service
 from app.database import SessionLocal, init_db
 from app.models import User, Project, Settings, TaskLog
 from sqlalchemy.orm import joinedload
-from app.services.scheduler import ReviewScheduler
+from app.services.scheduler import ReviewScheduler, run_monthly_efficiency_aggregation
 from app.services.task_executor import TaskExecutor
 
 # Import API routers
 from app.api import auth, projects, settings as settings_api, tasks, logs, reports
-from app.api import webhook, webhook_reviews, users, roles
+from app.api import webhook, webhook_reviews, users, roles, efficiency
 from app.api.projects import _filter_projects_by_permission
 
 # Configuration
@@ -98,6 +98,15 @@ async def lifespan(app: FastAPI):
                     job_id='weekly_review'
                 )
                 logger.info(f"Scheduled weekly task: weekday={weekday}, time={settings.weekly_schedule_time}")
+
+            # 注册每月任务
+            scheduler.setup_monthly_task(
+                day=1,
+                time="02:00",
+                callback=run_monthly_efficiency_aggregation,
+                job_id="monthly_efficiency",
+            )
+            logger.info("Scheduled monthly task: monthly_efficiency")
     except Exception as e:
         logger.warning(f"Could not setup scheduler: {e}")
     finally:
@@ -154,6 +163,7 @@ app.include_router(webhook.router)
 app.include_router(webhook_reviews.router)
 app.include_router(users.router)
 app.include_router(roles.router)
+app.include_router(efficiency.router)
 
 
 # Template context processor
@@ -611,6 +621,19 @@ async def webhook_reviews_page(request: Request):
     )
 
 
+@app.get("/efficiency", response_class=HTMLResponse)
+async def efficiency_page(request: Request):
+    """人员能效页面"""
+    user = request.session.get("user")
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    return templates.TemplateResponse(
+        request,
+        "efficiency.html",
+        get_template_context(request),
+    )
+
+
 @app.get("/users", response_class=HTMLResponse)
 async def users_page(request: Request):
     """账号管理页面 - 仅系统管理员可访问"""
@@ -687,7 +710,7 @@ def run_scheduled_task(task_type: str = 'daily'):
         else:
             review_days = settings.daily_review_days or 1
 
-        from app.services.gitlab_client import GitLabClient
+        from app.services.gitlab_client import GitLabClient, GitLabAuthError
         from app.services.code_reviewer import CodeReviewer
         from app.services.stats_generator import StatsGenerator
         from app.services.report_merger import ReportMerger
@@ -830,6 +853,15 @@ def run_scheduled_task(task_type: str = 'daily'):
                 task_log.end_time = datetime.now()
                 db.commit()
 
+            except GitLabAuthError as e:
+                logger.error(
+                    f"项目 {project.name} GitLab 认证失败: {e}\n"
+                    f"请检查: 1) Token 是否过期  2) Token 是否有 api 权限  3) 项目 Token 配置是否正确"
+                )
+                task_log.status = "failed"
+                task_log.error_message = f"GitLab 认证失败: {e}"
+                task_log.end_time = datetime.now()
+                db.commit()
             except Exception as e:
                 logger.error(
                     f"Failed to review project {project.name}: "
@@ -840,6 +872,57 @@ def run_scheduled_task(task_type: str = 'daily'):
                 task_log.error_message = f"[{type(e).__name__}] {e}"
                 task_log.end_time = datetime.now()
                 db.commit()
+
+        # 日报跑完后顺便聚合人员能效（仅 daily 任务）
+        if task_type == 'daily':
+            try:
+                from datetime import date as _date, timedelta as _td
+                from app.services.efficiency_aggregator import EfficiencyAggregator
+                from app.services.gitlab_client import GitLabClient as _GLC
+
+                target_efficiency_date = _date.today() - _td(days=1)
+
+                def _client_factory(proj):
+                    """根据项目解 token，构造 GitLabClient"""
+                    tk = None
+                    if proj.access_token:
+                        try:
+                            tk = security_service.decrypt(proj.access_token)
+                        except ValueError:
+                            tk = None
+                    if not tk and settings.global_gitlab_token:
+                        try:
+                            tk = security_service.decrypt(settings.global_gitlab_token)
+                        except ValueError:
+                            tk = None
+                    if not tk:
+                        raise RuntimeError(f"项目 {proj.name} 无可用 Token")
+                    return _GLC(gitlab_url=settings.global_gitlab_url,
+                                 access_token=tk)
+
+                llm_cfg = {
+                    "api_url": settings.llm_api_url,
+                    "api_key": (security_service.decrypt(settings.llm_api_key)
+                                if settings.llm_api_key else ""),
+                    "model": settings.llm_model,
+                    "timeout": settings.llm_timeout,
+                    "max_retries": settings.llm_max_retries,
+                    "retry_delay": settings.llm_retry_delay,
+                }
+
+                top_n = getattr(settings, "efficiency_work_summary_top_n", 5) or 5
+
+                aggregator = EfficiencyAggregator(
+                    db=db,
+                    gitlab_client_factory=_client_factory,
+                    llm_config=llm_cfg,
+                    top_n=top_n,
+                )
+                agg_result = aggregator.aggregate(target_efficiency_date)
+                logger.info(f"人员能效聚合: {agg_result}")
+            except Exception as e:
+                # 聚合失败不影响日报本身
+                logger.exception(f"人员能效聚合失败: {e}")
 
     finally:
         db.close()

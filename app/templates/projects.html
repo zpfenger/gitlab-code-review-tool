@@ -9,108 +9,195 @@
         <h1 class="page-title">项目管理</h1>
         <p class="page-subtitle">管理 GitLab 项目和审查配置</p>
     </div>
-    {% if 'system_admin' in current_user_roles or 'project_admin' in current_user_roles %}
-    <button class="btn btn-primary" onclick="openCreateModal()">
-        <i class="bi bi-plus-lg"></i> 添加项目
-    </button>
-    {% endif %}
 </div>
 
-<!-- Project List -->
-{% if projects %}
-<div class="table-container">
-    <table class="table">
-        <thead>
-            <tr>
-                <th>项目名称</th>
-                <th>项目 ID</th>
-                <th>目标分支</th>
-                <th>状态</th>
-                <th>配置</th>
-                <th>操作</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for project in projects %}
-            <tr>
-                <td>
-                    <strong>{{ project.name }}</strong>
-                    {% if project.description %}
-                    <br><small class="text-muted">{{ project.description }}</small>
-                    {% endif %}
-                </td>
-                <td><code>{{ project.project_id }}</code></td>
-                <td><code style="font-size: var(--text-xs);">{{ project.target_branches or '所有分支' }}</code></td>
-                <td>
-                    {% if project.is_active %}
-                    <span class="status">
-                        <span class="status-dot success"></span>
-                        活跃
-                    </span>
-                    {% else %}
-                    <span class="status">
-                        <span class="status-dot warning"></span>
-                        禁用
-                    </span>
-                    {% endif %}
-                </td>
-                <td>
-                    <div style="display: flex; gap: var(--space-3);">
-                        {% if project.svn_url %}
-                        <span class="badge badge-success" title="SVN 已配置">
-                            <i class="bi bi-cloud-upload"></i> SVN
-                        </span>
-                        {% endif %}
-                        {% if project.wecom_enabled %}
-                        <span class="badge badge-primary" title="企业微信已启用">
-                            <i class="bi bi-wechat"></i>
-                        </span>
-                        {% endif %}
-                    </div>
-                </td>
-                <td>
-                    <div class="btn-group">
-                        {% if 'system_admin' in current_user_roles or 'project_admin' in current_user_roles %}
-                        <button class="btn btn-secondary btn-icon" onclick="openEditModal({{ project.id }})" title="编辑">
-                            <i class="bi bi-pencil"></i>
-                        </button>
-                        <button class="btn btn-secondary btn-icon" onclick="testConnection({{ project.id }})" title="测试">
-                            <i class="bi bi-plug"></i>
-                        </button>
-                        {% endif %}
-                        {% if 'system_admin' in current_user_roles or 'project_admin' in current_user_roles %}
-                        <button class="btn btn-primary btn-icon" onclick="runTask({{ project.id }})" title="执行">
-                            <i class="bi bi-play-fill"></i>
-                        </button>
-                        {% endif %}
-                        {% if 'system_admin' in current_user_roles %}
-                        <button class="btn btn-danger btn-icon" onclick="deleteProject({{ project.id }})" title="删除">
-                            <i class="bi bi-trash"></i>
-                        </button>
-                        {% endif %}
-                    </div>
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-</div>
-{% else %}
-<div class="card">
-    <div class="card-body">
-        <div class="empty-state">
-            <i class="bi bi-folder-plus"></i>
-            <p>暂无项目，点击右上角按钮添加第一个项目</p>
+<!-- Panel -->
+<div class="panel">
+    <!-- Panel Heading -->
+    <div class="panel-heading">
+        <div class="panel-title">
+            <i class="bi bi-folder"></i> 项目列表
+        </div>
+        <div class="btn-group">
+            <button class="btn btn-secondary" onclick="location.reload()">
+                <i class="bi bi-arrow-clockwise"></i> 刷新
+            </button>
+            {% if 'system_admin' in current_user_roles or 'project_admin' in current_user_roles %}
+            <button class="btn btn-primary" onclick="openCreateModal()">
+                <i class="bi bi-plus-lg"></i> 新增项目
+            </button>
+            {% endif %}
         </div>
     </div>
+
+    <!-- Panel Body -->
+    <div class="panel-body">
+        <!-- Filter Form -->
+        <div class="filter-form">
+            <div class="form-group">
+                <label>项目名称</label>
+                <input type="text" class="form-input" id="filterName" placeholder="请输入项目名称">
+            </div>
+            <div class="form-group">
+                <label>状态</label>
+                <select class="form-input form-select" id="filterStatus">
+                    <option value="">全部状态</option>
+                    <option value="active">活跃</option>
+                    <option value="inactive">禁用</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>&nbsp;</label>
+                <div class="btn-group">
+                    <button class="btn btn-primary" onclick="filterProjects()">
+                        <i class="bi bi-search"></i> 查询
+                    </button>
+                    <button class="btn btn-secondary" onclick="clearFilter()">
+                        <i class="bi bi-x-circle"></i> 清空
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Toolbar -->
+        <div class="toolbar">
+            <div class="toolbar-left">
+                {% if 'system_admin' in current_user_roles or 'project_admin' in current_user_roles %}
+                <button class="btn btn-success" onclick="openCreateModal()">
+                    <i class="bi bi-plus-circle"></i> 新增
+                </button>
+                {% endif %}
+            </div>
+            <div class="toolbar-right">
+                <div class="page-size-selector">
+                    <select id="pageSize" onchange="changePageSize()">
+                        <option value="10">10条/页</option>
+                        <option value="20">20条/页</option>
+                        <option value="50">50条/页</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <!-- Table -->
+        {% if projects %}
+        <div style="overflow-x: auto;">
+            <table class="app-table-list" id="projectsTable">
+                <thead>
+                    <tr>
+                        <th style="width: 40px;"><input type="checkbox" id="selectAll" onclick="toggleSelectAll()"></th>
+                        <th style="width: 50px;">序号</th>
+                        <th style="width: 80px;">操作</th>
+                        <th>项目名称</th>
+                        <th>项目 ID</th>
+                        <th>目标分支</th>
+                        <th>状态</th>
+                        <th>配置</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for project in projects %}
+                    <tr data-name="{{ project.name }}" data-status="{% if project.is_active %}active{% else %}inactive{% endif %}">
+                        <td><input type="checkbox" class="row-checkbox" value="{{ project.id }}"></td>
+                        <td>{{ loop.index }}</td>
+                        <td>
+                            <div class="operation-group">
+                                <i class="bi bi-gear operation-trigger"></i>
+                                <div class="operation-menu">
+                                    {% if 'system_admin' in current_user_roles or 'project_admin' in current_user_roles %}
+                                    <button class="btn btn-sm btn-secondary" onclick="openEditModal({{ project.id }})">
+                                        <i class="bi bi-pencil"></i> 编辑
+                                    </button>
+                                    <button class="btn btn-sm btn-secondary" onclick="testConnection({{ project.id }})">
+                                        <i class="bi bi-plug"></i> 测试
+                                    </button>
+                                    <button class="btn btn-sm btn-primary" onclick="runTask({{ project.id }})">
+                                        <i class="bi bi-play-fill"></i> 执行
+                                    </button>
+                                    {% endif %}
+                                    {% if 'system_admin' in current_user_roles %}
+                                    <button class="btn btn-sm btn-danger" onclick="deleteProject({{ project.id }})">
+                                        <i class="bi bi-trash"></i> 删除
+                                    </button>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </td>
+                        <td style="text-align: left;">
+                            <strong>{{ project.name }}</strong>
+                            {% if project.description %}
+                            <br><small style="color: var(--color-slate-500);">{{ project.description }}</small>
+                            {% endif %}
+                        </td>
+                        <td><code>{{ project.project_id }}</code></td>
+                        <td><code style="font-size: var(--text-xs);">{{ project.target_branches or '所有分支' }}</code></td>
+                        <td>
+                            {% if project.is_active %}
+                            <span class="badge badge-success">活跃</span>
+                            {% else %}
+                            <span class="badge badge-warning">禁用</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <div style="display: flex; gap: var(--space-2); justify-content: center;">
+                                {% if project.svn_url %}
+                                <span class="badge badge-info" title="SVN 已配置">
+                                    <i class="bi bi-cloud-upload"></i> SVN
+                                </span>
+                                {% endif %}
+                                {% if project.wecom_enabled %}
+                                <span class="badge badge-primary" title="企业微信已启用">
+                                    <i class="bi bi-wechat"></i>
+                                </span>
+                                {% endif %}
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+                <tfoot>
+                    <tr class="total-row">
+                        <td class="total-cell" colspan="8" style="text-align: left;">
+                            共 <b>{{ projects|length }}</b> 个项目
+                        </td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+
+        <!-- Pagination -->
+        <div class="pagination-wrapper">
+            <div class="pagination-info">
+                共 <b>{{ projects|length }}</b> 条记录
+            </div>
+            <div class="pagination-controls">
+                <span class="page-link disabled">第一页</span>
+                <span class="page-link disabled">上一页</span>
+                <span class="page-link active">1</span>
+                <span class="page-link">下一页</span>
+                <span class="page-link">最末页</span>
+            </div>
+            <div class="pagination-jump">
+                <label>跳转到</label>
+                <input type="number" value="1" min="1">
+                <label>页</label>
+            </div>
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <i class="bi bi-folder-plus"></i>
+            <p>暂无项目，点击上方按钮添加第一个项目</p>
+        </div>
+        {% endif %}
+    </div>
 </div>
-{% endif %}
 
 <!-- Project Modal -->
 <div class="modal-overlay" id="projectModalBackdrop"></div>
 <div class="modal" id="projectModal" tabindex="-1" style="max-width: 720px;">
     <div class="modal-header">
         <h5 class="modal-title" id="projectModalTitle">添加项目</h5>
+        <button type="button" class="btn-close-modal" onclick="closeModal('projectModal')">&times;</button>
     </div>
     <form id="projectForm">
         <div class="modal-body">
@@ -225,6 +312,34 @@
 {% block extra_js %}
 <script>
 const projects = {{ projects | tojson | safe }};
+
+function filterProjects() {
+    const nameFilter = document.getElementById('filterName').value.toLowerCase();
+    const statusFilter = document.getElementById('filterStatus').value;
+    const rows = document.querySelectorAll('#projectsTable tbody tr');
+
+    rows.forEach(row => {
+        const name = row.dataset.name?.toLowerCase() || '';
+        const status = row.dataset.status || '';
+        const matchName = !nameFilter || name.includes(nameFilter);
+        const matchStatus = !statusFilter || status === statusFilter;
+
+        row.style.display = (matchName && matchStatus) ? '' : 'none';
+    });
+}
+
+function clearFilter() {
+    document.getElementById('filterName').value = '';
+    document.getElementById('filterStatus').value = '';
+    filterProjects();
+}
+
+function toggleSelectAll() {
+    const selectAll = document.getElementById('selectAll');
+    document.querySelectorAll('.row-checkbox').forEach(cb => {
+        cb.checked = selectAll.checked;
+    });
+}
 
 function openCreateModal() {
     document.getElementById('projectModalTitle').textContent = '添加项目';

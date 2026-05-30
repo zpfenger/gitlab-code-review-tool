@@ -74,49 +74,71 @@
         </h1>
         <p class="page-subtitle">管理系统用户账号和权限分配</p>
     </div>
-    <button class="btn btn-primary" onclick="openCreateUserModal()">
-        <i class="bi bi-plus-lg me-1"></i>创建账号
-    </button>
 </div>
 
-<!-- 搜索和筛选 -->
-<div class="filter-bar">
-    <div class="search-box">
-        <i class="bi bi-search"></i>
-        <input type="text" id="searchInput" placeholder="搜索用户名、昵称或邮箱..." oninput="filterUsers()" autocomplete="off" readonly onfocus="this.removeAttribute('readonly')">
+<!-- Panel -->
+<div class="panel">
+    <!-- Panel Heading -->
+    <div class="panel-heading">
+        <div class="panel-title">
+            <i class="bi bi-list-ul"></i> 用户列表
+        </div>
+        <button class="btn btn-primary" onclick="openCreateUserModal()">
+            <i class="bi bi-plus-lg me-1"></i>创建账号
+        </button>
     </div>
-    <select id="statusFilter" class="filter-select" onchange="filterUsers()">
-        <option value="">全部状态</option>
-        <option value="true">启用</option>
-        <option value="false">禁用</option>
-    </select>
-</div>
 
-<!-- 用户列表 -->
-<div class="card">
-    <div class="card-header d-flex justify-content-between align-items-center">
-        <h5 class="mb-0">
-            <i class="bi bi-list-ul me-2"></i>用户列表
-        </h5>
-        <span class="badge bg-secondary" id="userCount">0</span>
-    </div>
-    <div class="card-body p-0">
-        <div class="table-container" style="border: none; border-radius: 0;">
-            <table class="table" style="margin-bottom: 0;">
+    <!-- Panel Body -->
+    <div class="panel-body">
+        <!-- Filter Form -->
+        <div class="filter-form">
+            <div class="form-group">
+                <label>搜索</label>
+                <input type="text" class="form-input" id="searchInput" placeholder="搜索用户名、昵称或邮箱..." oninput="filterUsers()" autocomplete="off" readonly onfocus="this.removeAttribute('readonly')">
+            </div>
+            <div class="form-group">
+                <label>状态</label>
+                <select id="statusFilter" class="form-input form-select" onchange="filterUsers()">
+                    <option value="">全部状态</option>
+                    <option value="true">启用</option>
+                    <option value="false">禁用</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>&nbsp;</label>
+                <button class="btn btn-secondary" onclick="clearFilter()">
+                    <i class="bi bi-x-circle"></i> 清空
+                </button>
+            </div>
+        </div>
+
+        <!-- Toolbar -->
+        <div class="toolbar">
+            <div class="toolbar-left">
+                <span style="font-size: var(--text-sm); color: var(--color-slate-600);">
+                    共 <b id="userCount">0</b> 个用户
+                </span>
+            </div>
+        </div>
+
+        <!-- Table -->
+        <div style="overflow-x: auto;">
+            <table class="app-table-list">
                 <thead>
                     <tr>
+                        <th style="width: 50px;">序号</th>
+                        <th style="width: 120px;">操作</th>
                         <th>用户名</th>
                         <th>昵称</th>
                         <th>邮箱</th>
                         <th>角色</th>
                         <th>状态</th>
                         <th>创建时间</th>
-                        <th class="col-actions">操作</th>
                     </tr>
                 </thead>
                 <tbody id="usersTableBody">
                     <tr>
-                        <td colspan="7" class="text-center text-muted py-4">
+                        <td colspan="8" style="text-align: center; color: var(--color-slate-500); padding: var(--space-8);">
                             <div class="spinner-border spinner-border-sm me-2" role="status"></div>
                             加载中...
                         </td>
@@ -204,9 +226,9 @@
         </div>
         <div class="form-group">
             <label class="form-label">状态</label>
-            <div class="form-check form-switch">
-                <input class="form-check-input" type="checkbox" id="editIsActive">
-                <label class="form-check-label" for="editIsActive">启用账号</label>
+            <div style="display: flex; align-items: center; gap: var(--space-3);">
+                <input type="checkbox" id="editIsActive" style="width: 18px; height: 18px; accent-color: var(--color-primary);">
+                <label for="editIsActive" style="margin: 0;">启用账号</label>
             </div>
         </div>
         <div class="form-group" id="editRoleSection">
@@ -262,7 +284,7 @@
 
 <!-- 项目权限分配模态框 -->
 <div class="modal-overlay" id="projectPermModalBackdrop"></div>
-<div class="modal modal-lg" id="projectPermModal" tabindex="-1">
+<div class="modal" id="projectPermModal" tabindex="-1" style="max-width: 720px;">
     <div class="modal-header">
         <h5 class="modal-title">
             <i class="bi bi-folder-check me-2"></i>分配项目权限
@@ -274,15 +296,15 @@
         <div class="mb-3">
             <strong id="permUsername"></strong> 的项目权限
         </div>
-        <div class="row" id="permRow">
-            <div class="col-md-6" id="adminCol">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4);" id="permRow">
+            <div id="adminCol">
                 <h6><i class="bi bi-shield me-1"></i>项目管理员权限</h6>
                 <p class="text-muted small">可管理（创建、修改、删除）以下项目</p>
                 <div class="project-checklist" id="adminProjectsList">
                     <!-- 动态加载 -->
                 </div>
             </div>
-            <div class="col-md-6" id="memberCol">
+            <div id="memberCol">
                 <h6><i class="bi bi-eye me-1"></i>项目成员权限</h6>
                 <p class="text-muted small">可查看以下项目的数据（不能修改）</p>
                 <div class="project-checklist" id="memberProjectsList">
@@ -326,6 +348,7 @@
 <script>
     let allUsers = [];
     let allProjects = [];
+    let currentFilter = { search: '', status: '' };
     // 当前用户角色（从后端传入，用于权限校验）
     const currentUserRoles = {{ current_user_roles | tojson if current_user_roles else '[]' }};
     // 当前用户可分配哪些权限
@@ -347,6 +370,12 @@
         if (editRoleSection) editRoleSection.style.display = 'none';
     }
 
+    function clearFilter() {
+        document.getElementById('searchInput').value = '';
+        document.getElementById('statusFilter').value = '';
+        filterUsers();
+    }
+
     // 加载用户列表
     async function loadUsers() {
         try {
@@ -356,7 +385,7 @@
                     showNotification('您没有权限访问账号管理', 'danger');
                 }
                 document.getElementById('usersTableBody').innerHTML =
-                    '<tr><td colspan="7" class="text-center text-danger py-4">无权限或加载失败，请重新登录</td></tr>';
+                    '<tr><td colspan="8" style="text-align: center; color: var(--color-error); padding: var(--space-8);">无权限或加载失败，请重新登录</td></tr>';
                 return;
             }
             const data = await resp.json();
@@ -366,7 +395,7 @@
         } catch (e) {
             showNotification('加载用户列表失败', 'danger');
             document.getElementById('usersTableBody').innerHTML =
-                '<tr><td colspan="7" class="text-center text-danger py-4">加载失败，请刷新页面重试</td></tr>';
+                '<tr><td colspan="8" style="text-align: center; color: var(--color-error); padding: var(--space-8);">加载失败，请刷新页面重试</td></tr>';
         }
     }
 
@@ -405,18 +434,18 @@
         document.getElementById('userCount').textContent = filtered.length;
 
         if (filtered.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">暂无数据</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--color-slate-500); padding: var(--space-8);">暂无数据</td></tr>';
             return;
         }
 
-        tbody.innerHTML = filtered.map(user => {
+        tbody.innerHTML = filtered.map((user, index) => {
             const roleBadges = user.roles.map(role => {
-                const roleClass = role === 'system_admin' ? 'bg-danger' :
-                                  role === 'project_admin' ? 'bg-warning text-dark' : 'bg-info';
+                const roleClass = role === 'system_admin' ? 'badge-error' :
+                                  role === 'project_admin' ? 'badge-warning' : 'badge-info';
                 const roleName = role === 'system_admin' ? '系统管理员' :
                                 role === 'project_admin' ? '项目管理员' : '项目成员';
-                return `<span class="badge ${roleClass} me-1">${roleName}</span>`;
-            }).join('');
+                return `<span class="badge ${roleClass}">${roleName}</span>`;
+            }).join(' ');
 
             const isAdmin = user.roles.includes('system_admin');
             const usernameCell = `
@@ -428,34 +457,38 @@
 
             return `
                 <tr>
-                    <td>${usernameCell}</td>
+                    <td>${index + 1}</td>
+                    <td>
+                        <div class="operation-group">
+                            <i class="bi bi-gear operation-trigger"></i>
+                            <div class="operation-menu">
+                                <button class="btn btn-sm btn-secondary" onclick="openEditUserModal(${user.id})">
+                                    <i class="bi bi-pencil"></i> 编辑
+                                </button>
+                                <button class="btn btn-sm btn-secondary" onclick="openResetPwdModal(${user.id})">
+                                    <i class="bi bi-key"></i> 重置密码
+                                </button>
+                                <button class="btn btn-sm btn-secondary" onclick="openProjectPermModal(${user.id})">
+                                    <i class="bi bi-folder-check"></i> 项目权限
+                                </button>
+                                ${!user.roles.includes('system_admin') ? `
+                                <button class="btn btn-sm btn-danger" onclick="openDeleteUserModal(${user.id})">
+                                    <i class="bi bi-trash"></i> 删除
+                                </button>
+                                ` : ''}
+                            </div>
+                        </div>
+                    </td>
+                    <td style="text-align: left;">${usernameCell}</td>
                     <td>${escapeHtml(user.nickname || '-')}</td>
                     <td><span class="text-truncate-sm" title="${escapeHtml(user.email || '')}">${escapeHtml(user.email || '-')}</span></td>
                     <td>${roleBadges || '<span class="text-muted">无角色</span>'}</td>
                     <td>
-                        <span class="badge ${user.is_active ? 'bg-success' : 'bg-secondary'}">
+                        <span class="badge ${user.is_active ? 'badge-success' : 'badge-gray'}">
                             ${user.is_active ? '启用' : '禁用'}
                         </span>
                     </td>
-                    <td>${formatDate(user.created_at)}</td>
-                    <td class="col-actions" style="white-space: nowrap;">
-                        <div style="text-align: left; gap: 4px; justify-content: center; flex-wrap: nowrap;">
-                            <button class="btn btn-outline-primary btn-sm" onclick="openEditUserModal(${user.id})" title="编辑" style="padding: 4px 8px; font-size: 12px;">
-                                <i class="bi bi-pencil"></i>
-                            </button>
-                            <button class="btn btn-outline-warning btn-sm" onclick="openResetPwdModal(${user.id})" title="重置密码" style="padding: 4px 8px; font-size: 12px;">
-                                <i class="bi bi-key"></i>
-                            </button>
-                            <button class="btn btn-outline-info btn-sm" onclick="openProjectPermModal(${user.id})" title="项目权限" style="padding: 4px 8px; font-size: 12px;">
-                                <i class="bi bi-folder-check"></i>
-                            </button>
-                            ${!user.roles.includes('system_admin') ? `
-                            <button class="btn btn-outline-danger btn-sm" onclick="openDeleteUserModal(${user.id})" title="删除" style="padding: 4px 8px; font-size: 12px;">
-                                <i class="bi bi-trash"></i>
-                            </button>
-                            ` : ''}
-                        </div>
-                    </td>
+                    <td><small>${formatDate(user.created_at)}</small></td>
                 </tr>
             `;
         }).join('');
@@ -657,14 +690,14 @@
         const adminCol = document.getElementById('adminCol');
         const memberCol = document.getElementById('memberCol');
         if (!hasProjectAdminRole && hasProjectMemberRole) {
-            memberCol.className = 'col-md-12';
+            memberCol.style.gridColumn = '1 / -1';
             adminCol.style.display = 'none';
         } else if (hasProjectAdminRole && !hasProjectMemberRole) {
-            adminCol.className = 'col-md-12';
+            adminCol.style.gridColumn = '1 / -1';
             memberCol.style.display = 'none';
         } else {
-            adminCol.className = 'col-md-6';
-            memberCol.className = 'col-md-6';
+            adminCol.style.gridColumn = '';
+            memberCol.style.gridColumn = '';
         }
 
         // 加载用户详情获取当前项目权限

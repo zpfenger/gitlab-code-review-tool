@@ -2,7 +2,8 @@
 """GitLab 客户端测试"""
 import pytest
 from unittest.mock import Mock, patch, MagicMock
-from app.services.gitlab_client import GitLabClient
+import gitlab.exceptions
+from app.services.gitlab_client import GitLabClient, GitLabAuthError, GitLabConnectionError
 
 
 class TestGitLabClient:
@@ -40,10 +41,26 @@ class TestGitLabClient:
         assert result is True
 
     def test_test_connection_failure(self, client, mock_gitlab):
-        """测试连接失败"""
-        mock_gitlab.return_value.user.get.side_effect = Exception("Connection failed")
+        """测试连接失败（通用异常返回 False）"""
+        mock_gitlab.return_value.auth.side_effect = Exception("Connection failed")
         result = client.test_connection()
         assert result is False
+
+    def test_test_connection_auth_error(self, client, mock_gitlab):
+        """测试连接认证失败（401 抛出 GitLabAuthError）"""
+        mock_gitlab.return_value.auth.side_effect = gitlab.exceptions.GitlabAuthenticationError(
+            error_message="401 Unauthorized", response_code=401
+        )
+        with pytest.raises(GitLabAuthError) as exc_info:
+            client.test_connection()
+        assert "认证失败" in str(exc_info.value)
+
+    def test_test_connection_network_error(self, client, mock_gitlab):
+        """测试连接网络失败（抛出 GitLabConnectionError）"""
+        mock_gitlab.return_value.auth.side_effect = gitlab.exceptions.GitlabConnectionError("Connection refused")
+        with pytest.raises(GitLabConnectionError) as exc_info:
+            client.test_connection()
+        assert "无法连接" in str(exc_info.value)
 
     def test_get_branches(self, client, mock_gitlab):
         """测试获取分支列表"""
@@ -79,6 +96,28 @@ class TestGitLabClient:
         assert branches[0]["name"] == "main"
         assert branches[1]["name"] == "develop"
         assert branches[2]["name"] == "feature/test"
+
+    def test_get_branches_auth_error(self, client, mock_gitlab):
+        """测试获取分支列表时认证失败"""
+        mock_project = Mock()
+        mock_project.branches.list.side_effect = gitlab.exceptions.GitlabAuthenticationError(
+            error_message="401 Unauthorized", response_code=401
+        )
+        mock_gitlab.return_value.projects.get.return_value = mock_project
+
+        with pytest.raises(GitLabAuthError) as exc_info:
+            client.get_branches(project_id=1)
+        assert "认证失败" in str(exc_info.value)
+        assert exc_info.value.project_id == 1
+
+    def test_get_branches_generic_error(self, client, mock_gitlab):
+        """测试获取分支列表时通用异常返回空列表"""
+        mock_project = Mock()
+        mock_project.branches.list.side_effect = Exception("Network timeout")
+        mock_gitlab.return_value.projects.get.return_value = mock_project
+
+        branches = client.get_branches(project_id=1)
+        assert branches == []
 
     def test_get_commits(self, client, mock_gitlab):
         """测试获取提交列表"""

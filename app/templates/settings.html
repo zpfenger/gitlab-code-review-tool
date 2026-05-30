@@ -16,11 +16,13 @@
 
 <form id="settingsForm">
     <!-- GitLab Configuration -->
-    <div class="card mb-4">
-        <div class="card-header">
-            <i class="bi bi-git"></i> GitLab 配置
+    <div class="panel" style="margin-bottom: var(--space-4);">
+        <div class="panel-heading">
+            <div class="panel-title">
+                <i class="bi bi-git"></i> GitLab 配置
+            </div>
         </div>
-        <div class="card-body">
+        <div class="panel-body">
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4);">
                 <div class="form-group">
                     <label for="gitlab_url" class="form-label">GitLab URL *</label>
@@ -43,11 +45,13 @@
     </div>
 
     <!-- LLM Configuration -->
-    <div class="card mb-4">
-        <div class="card-header">
-            <i class="bi bi-robot"></i> LLM API 配置
+    <div class="panel" style="margin-bottom: var(--space-4);">
+        <div class="panel-heading">
+            <div class="panel-title">
+                <i class="bi bi-robot"></i> LLM API 配置
+            </div>
         </div>
-        <div class="card-body">
+        <div class="panel-body">
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4);">
                 <div class="form-group">
                     <label for="llm_api_url" class="form-label">API URL *</label>
@@ -122,11 +126,13 @@
     </div>
 
     <!-- SVN Configuration -->
-    <div class="card mb-4">
-        <div class="card-header">
-            <i class="bi bi-cloud-upload"></i> SVN 全局配置（可选）
+    <div class="panel" style="margin-bottom: var(--space-4);">
+        <div class="panel-heading">
+            <div class="panel-title">
+                <i class="bi bi-cloud-upload"></i> SVN 全局配置（可选）
+            </div>
         </div>
-        <div class="card-body">
+        <div class="panel-body">
             <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: var(--space-4);">
                 <div class="form-group">
                     <label for="global_svn_url" class="form-label">SVN URL</label>
@@ -149,9 +155,11 @@
     </div>
 
     <!-- Webhook Configuration -->
-    <div class="card mb-4">
-        <div class="card-header">
-            <span><i class="bi bi-lightning"></i> Webhook 实时审查</span>
+    <div class="panel" style="margin-bottom: var(--space-4);">
+        <div class="panel-heading">
+            <div class="panel-title">
+                <i class="bi bi-lightning"></i> Webhook 实时审查
+            </div>
             <div style="display: flex; align-items: center; gap: var(--space-2);">
                 <input type="checkbox" id="webhook_enabled"
                        name="webhook_enabled" {% if settings.webhook_enabled %}checked{% endif %}
@@ -159,7 +167,7 @@
                 <label for="webhook_enabled" style="margin: 0; font-size: var(--text-sm);">启用</label>
             </div>
         </div>
-        <div class="card-body">
+        <div class="panel-body">
             <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: var(--space-4);">
                 <div class="form-group">
                     <div style="display: flex; align-items: center; gap: var(--space-3); padding-top: var(--space-5);">
@@ -208,9 +216,11 @@
     </div>
 
     <!-- Scheduler Configuration -->
-    <div class="card mb-4">
-        <div class="card-header">
-            <span><i class="bi bi-clock"></i> 调度配置</span>
+    <div class="panel" style="margin-bottom: var(--space-4);">
+        <div class="panel-heading">
+            <div class="panel-title">
+                <i class="bi bi-clock"></i> 调度配置
+            </div>
             <div style="display: flex; align-items: center; gap: var(--space-2);">
                 <input type="checkbox" id="scheduler_enabled"
                        name="scheduler_enabled" {% if settings.scheduler_enabled %}checked{% endif %}
@@ -218,7 +228,7 @@
                 <label for="scheduler_enabled" style="margin: 0; font-size: var(--text-sm);">启用调度总开关</label>
             </div>
         </div>
-        <div class="card-body">
+        <div class="panel-body">
             <!-- Daily Schedule -->
             <div style="border: 1px solid var(--color-slate-200); border-radius: var(--radius-md); padding: var(--space-4); margin-bottom: var(--space-4);">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-4);">
@@ -300,6 +310,7 @@
 <div class="modal" id="testResultModal" tabindex="-1">
     <div class="modal-header">
         <h5 class="modal-title">测试结果</h5>
+        <button type="button" class="btn-close-modal" onclick="closeModal('testResultModal')">&times;</button>
     </div>
     <div class="modal-body" id="testResultBody"></div>
 </div>
