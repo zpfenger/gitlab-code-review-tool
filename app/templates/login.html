@@ -30,17 +30,17 @@
             overflow: hidden;
             width: 1200px;
             margin: 0 auto;
-            height: 100px;
+            height: 90px;
         }
 
         .login-orange-ui .login-top .left {
             float: left;
-            padding-top: 26px;
+            padding-top: 16px;
         }
 
         .login-orange-ui .login-top .right {
             float: right;
-            padding: 42px 0 0 0;
+            padding: 32px 0 0 0;
         }
 
         .login-orange-ui .login-input {
@@ -187,7 +187,7 @@
         .login-orange-ui .login-record {
             text-align: center;
             line-height: 24px;
-            padding: 38px 0;
+            padding: 38px 0 18px;
             font-size: 12px;
         }
 
@@ -272,7 +272,7 @@
 </head>
 <body>
 <div class="login-orange-ui">
-    <div class="login-top">
+    <div class="login-top" style="padding-top: calc(100vh/2 - 355px);">
         <div class="bg">
             <div class="left"><img src="/static/images/login/login-logo-white.svg" style="height: 45px;"></div>
             <div class="right"><img src="/static/images/login/title.svg" height="30" alt=""></div>
@@ -309,15 +309,6 @@
         上海人瑞网络科技有限公司<span style="padding: 0 10px;">版权所有©</span>沪公网安备 31010602003046号
     </div>
 </div>
-
-<script src="https://renruiplugins.oss-cn-beijing.aliyuncs.com/static/plugins/jquery/jquery.min.js?"></script>
-<script>
-    $(function () {
-        if($(window).height()>740){
-            $(".login-top").css("padding-top",($(window).height()-740)/2);
-        }
-    })
-</script>
 
 <script src="/static/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
 <script>
