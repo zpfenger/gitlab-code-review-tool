@@ -208,8 +208,8 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+<script src="/static/vendor/chartjs/chart.umd.min.js"></script>
+<script src="/static/vendor/dompurify/purify.min.js"></script>
 <script>
 // 角色权限变量（由后端传递）
 const currentUserRoles = {{ current_user_roles | tojson }};
