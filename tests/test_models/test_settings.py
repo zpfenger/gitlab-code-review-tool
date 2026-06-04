@@ -58,8 +58,10 @@ class TestSettings:
         assert settings.external_api_key is None
 
     def test_external_api_key_encrypted_storage(self, db_session):
-        """测试 external_api_key 加密存储"""
-        plaintext_key = "hr-system-api-key-12345"
+        """测试 external_api_key 加密存储（含 100+ 字符明文，验证 Fernet 密文不超限）"""
+        # 使用 100+ 字符的明文，Fernet 加密后约 233 字符，验证 String(500) 足够
+        plaintext_key = "hr-system-api-key-" + "x" * 100 + "-end-12345"
+        assert len(plaintext_key) > 100
         encrypted_key = security_service.encrypt(plaintext_key)
 
         settings = Settings(

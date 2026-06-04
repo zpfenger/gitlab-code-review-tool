@@ -45,7 +45,7 @@ class Settings(BaseModel):
     scheduler_enabled = Column(Boolean, default=True, comment="是否启用定时任务总开关")
 
     # 外部 API 配置
-    external_api_key = Column(String(200), nullable=True, comment="外部 API Key (加密存储)")
+    external_api_key = Column(String(500), nullable=True, comment="外部 API Key (加密存储)")
 
     # 人员能效配置
     efficiency_enabled = Column(Boolean, default=True, comment="是否启用人员能效聚合")
