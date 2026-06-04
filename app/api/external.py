@@ -3,7 +3,8 @@
 为 HR 系统等外部服务提供员工能效数据查询接口。
 
 端点：
-- GET /api/external/efficiency/list   查询员工能效数据（需 API Key 认证）
+- GET /api/external/efficiency/list    查询员工能效数据（需 API Key 认证）
+- GET /api/external/efficiency/daily   查询指定日期的能效数据
 """
 from __future__ import annotations
 
@@ -134,3 +135,79 @@ def get_efficiency_list(
             "page_size": page_size,
         }
     )
+
+
+@router.get("/efficiency/daily")
+def get_efficiency_daily(
+    *,
+    db: Session = Depends(get_db),
+    _api_key: str = Depends(verify_api_key),
+    date_str: Optional[str] = Query(
+        None, alias="date", description="查询日期 YYYY-MM-DD，默认为前一天"
+    ),
+) -> ApiResponse:
+    """查询指定日期的能效数据
+
+    - 默认查询前一天的数据
+    - 返回每个员工的能效记录及 llm_status
+    - 当 llm_status 为 pending/failed/skipped 时，返回提示信息
+    """
+    # 解析日期参数，默认前一天
+    if date_str:
+        try:
+            target_date = date.fromisoformat(date_str)
+        except ValueError:
+            raise HTTPException(
+                status_code=400, detail="date 格式错误，需 YYYY-MM-DD"
+            )
+    else:
+        target_date = date.today() - timedelta(days=1)
+
+    # 查询该日期的所有记录
+    rows = (
+        db.query(EmployeeEfficiencyDaily)
+        .filter(EmployeeEfficiencyDaily.stat_date == target_date)
+        .all()
+    )
+
+    # 无记录视为 pending
+    if not rows:
+        return ApiResponse.ok(
+            data={
+                "date": target_date.isoformat(),
+                "llm_status": "pending",
+                "message": "能效数据尚未生成，请稍后重试",
+                "items": [],
+            }
+        )
+
+    # 根据记录的 llm_status 汇总
+    statuses = {r.llm_status for r in rows}
+    if statuses == {"success"}:
+        overall_status = "success"
+    elif "success" in statuses:
+        overall_status = "partial"
+    elif "failed" in statuses:
+        overall_status = "failed"
+    else:
+        # 全部 pending 或 skipped
+        overall_status = next(iter(statuses))
+
+    # 构造响应
+    result = {
+        "date": target_date.isoformat(),
+        "llm_status": overall_status,
+        "items": [_serialize(r) for r in rows],
+    }
+
+    # 非 success 时附加提示
+    if overall_status != "success":
+        messages = {
+            "pending": "能效数据尚未生成，请稍后重试",
+            "skipped": "该日期数据已跳过",
+            "failed": "能效数据生成失败",
+            "partial": "部分员工能效数据未完成",
+        }
+        result["message"] = messages.get(overall_status, "")
+
+    return ApiResponse.ok(data=result)
