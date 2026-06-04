@@ -656,8 +656,15 @@
         });
     }
 
-    // ── 补算按钮 ────────────────────────────────
+    // ── 补算按钮 + 异步轮询 ──────────────────────
+    var _pollTimer = null;
+
     function openRecomputeModal() {
+        // 如果正在补算，点击按钮切换为显示进度
+        if (_pollTimer) {
+            toggleRecomputeProgress(true);
+            return;
+        }
         var desc = STATE.mode === 'monthly'
             ? '补算 ' + STATE.yearMonth + ' 的月度能效数据'
             : '补算 ' + STATE.startDate + ' ~ ' + STATE.endDate + ' 的人员能效数据';
@@ -677,62 +684,152 @@
         var btn = document.getElementById('btnRecompute');
         btn.disabled = true;
 
+        var url, body;
         if (STATE.mode === 'monthly') {
-            apiRequest('/api/efficiency/monthly/recompute', {
-                method: 'POST',
-                body: JSON.stringify({ year_month: STATE.yearMonth, force: force }),
-            })
-                .then(function (r) {
-                    if (r && r.ok) {
-                        showNotification('月度补算完成', 'success');
-                        loadData();
-                    } else {
-                        showNotification('月度补算失败', 'danger');
-                    }
-                })
-                .catch(function () {
-                    showNotification('补算请求失败', 'danger');
-                })
-                .finally(function () {
-                    btn.disabled = false;
-                });
+            url = '/api/efficiency/monthly/recompute';
+            body = { year_month: STATE.yearMonth, force: force };
         } else {
-            apiRequest('/api/efficiency/recompute', {
-                method: 'POST',
-                body: JSON.stringify({
-                    start_date: STATE.startDate,
-                    end_date: STATE.endDate,
-                    force: force,
-                }),
+            url = '/api/efficiency/recompute';
+            body = { start_date: STATE.startDate, end_date: STATE.endDate, force: force };
+        }
+
+        apiRequest(url, {
+            method: 'POST',
+            body: JSON.stringify(body),
+        })
+            .then(function (r) {
+                if (!r || !r.ok) {
+                    return r.json().then(function (j) {
+                        showNotification(j.message || '补算请求失败', 'danger');
+                        btn.disabled = false;
+                    }).catch(function () {
+                        showNotification('补算请求失败', 'danger');
+                        btn.disabled = false;
+                    });
+                }
+                return r.json();
             })
-                .then(function (r) {
-                    if (!r || !r.ok) {
-                        showNotification('补算失败', 'danger');
-                        return;
-                    }
-                    return r.json();
-                })
-                .then(function (json) {
-                    if (!json) return;
-                    if (json.success) {
-                        var d = json.data || {};
+            .then(function (json) {
+                if (!json) return;
+                if (json.success) {
+                    showNotification(json.message || '补算任务已启动', 'info');
+                    startRecomputePolling();
+                } else {
+                    showNotification(json.message || '补算失败', 'danger');
+                    btn.disabled = false;
+                }
+            })
+            .catch(function () {
+                showNotification('补算请求失败', 'danger');
+                btn.disabled = false;
+            });
+    }
+
+    function startRecomputePolling() {
+        toggleRecomputeProgress(true);
+        _pollTimer = setInterval(pollRecomputeStatus, 3000);
+    }
+
+    function stopRecomputePolling() {
+        if (_pollTimer) {
+            clearInterval(_pollTimer);
+            _pollTimer = null;
+        }
+        var btn = document.getElementById('btnRecompute');
+        btn.disabled = false;
+    }
+
+    function pollRecomputeStatus() {
+        apiRequest('/api/efficiency/recompute/status')
+            .then(function (r) {
+                if (!r || !r.ok) return null;
+                return r.json();
+            })
+            .then(function (json) {
+                if (!json || !json.success) return;
+                var d = json.data || {};
+                renderRecomputeProgress(d);
+
+                if (!d.is_running) {
+                    stopRecomputePolling();
+                    // 显示完成通知
+                    if (d.error) {
+                        showNotification('补算异常：' + d.error, 'danger');
+                    } else if (d.task_type === 'monthly') {
+                        showNotification('月度补算完成', 'success');
+                    } else {
                         var msg = '补算完成：处理 ' + (d.processed || []).length + ' 天，'
                             + '跳过 ' + (d.skipped || []).length + ' 天，'
                             + '失败 ' + (d.failed || []).length + ' 天';
                         showNotification(msg, 'success');
-                        loadData();
-                    } else {
-                        showNotification(json.message || '补算失败', 'danger');
                     }
-                })
-                .catch(function () {
-                    showNotification('补算请求失败', 'danger');
-                })
-                .finally(function () {
-                    btn.disabled = false;
-                });
-        }
+                    // 3 秒后隐藏进度条
+                    setTimeout(function () { toggleRecomputeProgress(false); }, 3000);
+                    loadData();
+                }
+            })
+            .catch(function () {
+                // 轮询出错不停止，可能只是网络波动
+            });
     }
+
+    function toggleRecomputeProgress(show) {
+        var el = document.getElementById('recomputeProgress');
+        if (el) el.style.display = show ? '' : 'none';
+    }
+
+    function renderRecomputeProgress(d) {
+        var el = document.getElementById('recomputeProgress');
+        if (!el) return;
+
+        var total = d.total_days || 1;
+        var done = d.processed_days || 0;
+        var pct = Math.min(Math.round(done / total * 100), 100);
+
+        var statusText = '';
+        if (d.task_type === 'monthly') {
+            statusText = '正在补算月度数据...';
+        } else {
+            statusText = '正在补算 ' + (d.current_date || '...') +
+                '（' + done + '/' + total + ' 天）';
+        }
+
+        var detailParts = [];
+        if (d.processed && d.processed.length) {
+            detailParts.push('已完成 ' + d.processed.length + ' 天');
+        }
+        if (d.skipped && d.skipped.length) {
+            detailParts.push('跳过 ' + d.skipped.length + ' 天');
+        }
+        if (d.failed && d.failed.length) {
+            detailParts.push('<span class="text-danger">失败 ' + d.failed.length + ' 天</span>');
+        }
+
+        el.innerHTML =
+            '<div style="display:flex; align-items:center; gap:var(--space-3); margin-top:var(--space-2);">' +
+            '  <div style="flex:1;">' +
+            '    <div style="display:flex; justify-content:space-between; margin-bottom:2px;">' +
+            '      <span class="small text-muted">' + statusText + '</span>' +
+            '      <span class="small text-muted">' + pct + '%</span>' +
+            '    </div>' +
+            '    <div style="height:6px; background:var(--color-border); border-radius:3px; overflow:hidden;">' +
+            '      <div style="height:100%; width:' + pct + '%; background:var(--color-primary); border-radius:3px; transition:width 0.3s;"></div>' +
+            '    </div>' +
+            (detailParts.length ? '    <div class="small text-muted" style="margin-top:2px;">' + detailParts.join('，') + '</div>' : '') +
+            '  </div>' +
+            '  <button class="btn btn-sm btn-secondary" id="btnCancelRecompute" onclick="cancelRecompute()">取消</button>' +
+            '</div>';
+    }
+
+    window.cancelRecompute = function() {
+        apiRequest('/api/efficiency/recompute/cancel', { method: 'POST' })
+            .then(function (r) {
+                if (r && r.ok) {
+                    showNotification('正在取消补算...', 'info');
+                }
+            })
+            .catch(function () {});
+    };
 
     function checkAdminAndBindRecompute() {
         apiRequest('/api/auth/me')
@@ -745,6 +842,8 @@
                 STATE.isAdmin = data.roles && data.roles.indexOf('system_admin') !== -1;
                 if (STATE.isAdmin) {
                     document.getElementById('btnRecompute').style.display = '';
+                    // 检查是否有正在运行的补算任务
+                    checkRunningRecompute();
                 }
             })
             .catch(function (err) {
@@ -758,6 +857,22 @@
         document.getElementById('recomputeModal').addEventListener('click', function (e) {
             if (e.target === this) closeRecomputeModal();
         });
+    }
+
+    function checkRunningRecompute() {
+        apiRequest('/api/efficiency/recompute/status')
+            .then(function (r) {
+                if (!r || !r.ok) return;
+                return r.json();
+            })
+            .then(function (json) {
+                if (!json || !json.success) return;
+                if (json.data && json.data.is_running) {
+                    // 有正在运行的补算任务，启动轮询
+                    startRecomputePolling();
+                }
+            })
+            .catch(function () {});
     }
 
     // ── 窗口 resize ─────────────────────────────
