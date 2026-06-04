@@ -11,7 +11,7 @@
 from __future__ import annotations
 import json
 from datetime import date, datetime
-from typing import Callable, Dict, Set, Any
+from typing import Callable, Dict, Optional, Set, Any
 
 from loguru import logger
 from sqlalchemy.orm import Session
@@ -31,6 +31,7 @@ class EfficiencyAggregator:
         gitlab_client_factory: Callable[[Project], Any],
         llm_config: Dict[str, Any],
         top_n: int = 5,
+        custom_prompt_template: Optional[str] = None,
     ):
         """
         Args:
@@ -39,11 +40,13 @@ class EfficiencyAggregator:
                                    （便于注入 mock，且每个项目可能有独立 token）
             llm_config: {"api_url", "api_key", "model", 可选 timeout/temperature 等}
             top_n: 工作总结条目上限
+            custom_prompt_template: 自定义提示词模板（可选）
         """
         self.db = db
         self.gitlab_client_factory = gitlab_client_factory
         self.llm_config = llm_config
         self.top_n = top_n
+        self.custom_prompt_template = custom_prompt_template
 
     # ── 主入口 ────────────────────────────────────────
     def aggregate(self, target_date: date) -> Dict[str, Any]:
@@ -188,6 +191,7 @@ class EfficiencyAggregator:
             max_retries=self.llm_config.get("max_retries", 3),
             retry_delay=self.llm_config.get("retry_delay", 10),
             review_max_tokens=self.llm_config.get("review_max_tokens", 10000),
+            custom_prompt_template=self.custom_prompt_template,
         )
 
         existing = (self.db.query(EmployeeEfficiencyDaily)

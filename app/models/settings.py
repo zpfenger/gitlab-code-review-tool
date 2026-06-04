@@ -44,6 +44,12 @@ class Settings(BaseModel):
     # 全局调度开关
     scheduler_enabled = Column(Boolean, default=True, comment="是否启用定时任务总开关")
 
+    # 人员能效配置
+    efficiency_enabled = Column(Boolean, default=True, comment="是否启用人员能效聚合")
+    efficiency_work_summary_top_n = Column(Integer, default=5, comment="LLM 工作总结条目上限")
+    efficiency_prompt_template = Column(Text, nullable=True, comment="能效评分提示词模板")
+    efficiency_monthly_prompt_template = Column(Text, nullable=True, comment="月度能效提示词模板")
+
     # 任务限制
     max_commits_per_run = Column(Integer, default=100, comment="单次最大处理提交数")
     diff_max_lines = Column(Integer, default=10000, comment="单次 diff 最大行数限制")

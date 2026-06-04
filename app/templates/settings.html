@@ -7,7 +7,7 @@
 <div class="page-header">
     <div>
         <h1 class="page-title">系统设置</h1>
-        <p class="page-subtitle">配置 GitLab 连接、LLM API 和全局参数</p>
+        <p class="page-subtitle">配置 GitLab 连接、LLM API、人员能效和全局参数</p>
     </div>
     <button type="submit" form="settingsForm" class="btn btn-primary">
         <i class="bi bi-check-lg"></i> 保存设置
@@ -215,6 +215,48 @@
         </div>
     </div>
 
+    <!-- Efficiency Configuration -->
+    <div class="panel" style="margin-bottom: var(--space-4);">
+        <div class="panel-heading">
+            <div class="panel-title">
+                <i class="bi bi-graph-up"></i> 人员能效配置
+            </div>
+            <div style="display: flex; align-items: center; gap: var(--space-2);">
+                <input type="checkbox" id="efficiency_enabled"
+                       name="efficiency_enabled" {% if settings.efficiency_enabled %}checked{% endif %}
+                       style="width: 18px; height: 18px; accent-color: var(--color-primary);">
+                <label for="efficiency_enabled" style="margin: 0; font-size: var(--text-sm);">启用能效聚合</label>
+            </div>
+        </div>
+        <div class="panel-body">
+            <div style="display: grid; grid-template-columns: 1fr; gap: var(--space-4); max-width: 300px;">
+                <div class="form-group">
+                    <label for="efficiency_work_summary_top_n" class="form-label">工作总结条目上限</label>
+                    <input type="number" class="form-input" id="efficiency_work_summary_top_n"
+                           name="efficiency_work_summary_top_n" min="1" max="20"
+                           value="{{ settings.efficiency_work_summary_top_n or 5 }}">
+                    <small class="text-muted">LLM 输出的主要工作条目数量上限（1-20）</small>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="efficiency_prompt_template" class="form-label">能效评分提示词模板</label>
+                <textarea class="form-input" id="efficiency_prompt_template"
+                          name="efficiency_prompt_template" rows="6" style="font-family: var(--font-mono); height: auto; min-height: 120px; max-height: 400px; resize: vertical;"
+                          placeholder="留空使用默认提示词">{{ settings.efficiency_prompt_template or '' }}</textarea>
+                <small class="text-muted">用于日度能效评分的 LLM 提示词。需包含 <code>{top_n}</code> 占位符</small>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 0;">
+                <label for="efficiency_monthly_prompt_template" class="form-label">月度能效提示词模板</label>
+                <textarea class="form-input" id="efficiency_monthly_prompt_template"
+                          name="efficiency_monthly_prompt_template" rows="6" style="font-family: var(--font-mono); height: auto; min-height: 120px; max-height: 400px; resize: vertical;"
+                          placeholder="留空使用默认提示词">{{ settings.efficiency_monthly_prompt_template or '' }}</textarea>
+                <small class="text-muted">用于月度能效汇总的 LLM 提示词。需包含 <code>{top_n}</code>、<code>{author_name}</code>、<code>{year_month}</code> 占位符</small>
+            </div>
+        </div>
+    </div>
+
     <!-- Scheduler Configuration -->
     <div class="panel" style="margin-bottom: var(--space-4);">
         <div class="panel-heading">
@@ -400,6 +442,10 @@ document.getElementById('settingsForm').addEventListener('submit', async functio
         daily_schedule_times: JSON.stringify(times),
         daily_review_days: parseInt(formData.get('daily_review_days')) || 1,
         daily_enabled: formData.get('daily_enabled') === 'on',
+        efficiency_enabled: formData.get('efficiency_enabled') === 'on',
+        efficiency_work_summary_top_n: parseInt(formData.get('efficiency_work_summary_top_n')) || 5,
+        efficiency_prompt_template: formData.get('efficiency_prompt_template') || null,
+        efficiency_monthly_prompt_template: formData.get('efficiency_monthly_prompt_template') || null,
         weekly_schedule_time: formData.get('weekly_schedule_time') || '09:00',
         weekly_weekday: parseInt(formData.get('weekly_weekday')) || 0,
         weekly_review_days: parseInt(formData.get('weekly_review_days')) || 7,

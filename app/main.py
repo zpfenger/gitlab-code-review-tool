@@ -873,8 +873,8 @@ def run_scheduled_task(task_type: str = 'daily'):
                 task_log.end_time = datetime.now()
                 db.commit()
 
-        # 日报跑完后顺便聚合人员能效（仅 daily 任务）
-        if task_type == 'daily':
+        # 日报跑完后顺便聚合人员能效（仅 daily 任务且开启时）
+        if task_type == 'daily' and settings.efficiency_enabled:
             try:
                 from datetime import date as _date, timedelta as _td
                 from app.services.efficiency_aggregator import EfficiencyAggregator
@@ -911,13 +911,14 @@ def run_scheduled_task(task_type: str = 'daily'):
                     "review_max_tokens": settings.review_max_tokens or 10000,
                 }
 
-                top_n = getattr(settings, "efficiency_work_summary_top_n", 5) or 5
+                top_n = settings.efficiency_work_summary_top_n or 5
 
                 aggregator = EfficiencyAggregator(
                     db=db,
                     gitlab_client_factory=_client_factory,
                     llm_config=llm_cfg,
                     top_n=top_n,
+                    custom_prompt_template=settings.efficiency_prompt_template,
                 )
                 agg_result = aggregator.aggregate(target_efficiency_date)
                 logger.info(f"人员能效聚合: {agg_result}")

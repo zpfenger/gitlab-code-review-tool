@@ -172,8 +172,15 @@ def parse_review_summary(text: str) -> str:
 
 
 # ── Prompt 构造 ───────────────────────────────────────
-def build_system_prompt(top_n: int = 5) -> str:
-    return EFFICIENCY_SYSTEM_PROMPT.format(top_n=top_n)
+def build_system_prompt(top_n: int = 5, custom_template: Optional[str] = None) -> str:
+    """构造日度能效评分系统提示词
+
+    Args:
+        top_n: 工作总结条目上限
+        custom_template: 自定义提示词模板（可选）
+    """
+    template = custom_template or EFFICIENCY_SYSTEM_PROMPT
+    return template.format(top_n=top_n)
 
 
 def build_user_prompt(author_name: str, commits_text: str,
@@ -188,8 +195,18 @@ def build_user_prompt(author_name: str, commits_text: str,
 
 # ── 月度 Prompt 构造 ───────────────────────────────────
 def build_monthly_system_prompt(author_name: str, year_month: str,
-                                 top_n: int = 10) -> str:
-    return EFFICIENCY_MONTHLY_SYSTEM_PROMPT.format(
+                                 top_n: int = 10,
+                                 custom_template: Optional[str] = None) -> str:
+    """构造月度能效汇总系统提示词
+
+    Args:
+        author_name: 员工姓名
+        year_month: 年月（如 2026-01）
+        top_n: 工作总结条目上限
+        custom_template: 自定义提示词模板（可选）
+    """
+    template = custom_template or EFFICIENCY_MONTHLY_SYSTEM_PROMPT
+    return template.format(
         author_name=author_name, year_month=year_month, top_n=top_n,
     )
 
@@ -224,11 +241,13 @@ def call_llm(
     max_retries: int = 3,
     retry_delay: int = 10,
     review_max_tokens: int = 10000,
+    custom_prompt_template: Optional[str] = None,
 ) -> Optional[str]:
     """同步调用 LLM，返回原始 markdown 文本；失败返回 None
 
     Args:
         diffs: 按文件分隔的 diff 列表，每项格式 "--- {path} ---\n{diff}"
+        custom_prompt_template: 自定义提示词模板（可选）
     """
     import time
 
@@ -236,7 +255,7 @@ def call_llm(
     commits_text = truncate_text(commits_text, review_max_tokens // 5)
 
     messages = [
-        {"role": "system", "content": build_system_prompt(top_n=top_n)},
+        {"role": "system", "content": build_system_prompt(top_n=top_n, custom_template=custom_prompt_template)},
         {"role": "user", "content": build_user_prompt(
             author_name=author_name,
             commits_text=commits_text,
@@ -360,13 +379,19 @@ def call_monthly_llm(
     timeout: int = 240,
     max_retries: int = 3,
     retry_delay: int = 10,
+    custom_prompt_template: Optional[str] = None,
 ) -> Optional[str]:
-    """同步调用 LLM 生成月度总结，返回原始 markdown 文本"""
+    """同步调用 LLM 生成月度总结，返回原始 markdown 文本
+
+    Args:
+        custom_prompt_template: 自定义月度提示词模板（可选）
+    """
     import time
 
     messages = [
         {"role": "system", "content": build_monthly_system_prompt(
             author_name=author_name, year_month=year_month, top_n=top_n,
+            custom_template=custom_prompt_template,
         )},
         {"role": "user", "content": build_monthly_user_prompt(
             author_name=author_name, year_month=year_month,

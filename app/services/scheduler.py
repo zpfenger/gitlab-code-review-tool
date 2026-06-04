@@ -261,6 +261,10 @@ def run_monthly_efficiency_aggregation():
             logger.error("未找到系统配置，跳过月度聚合")
             return
 
+        if not settings.efficiency_enabled:
+            logger.info("人员能效功能已禁用，跳过月度聚合")
+            return
+
         llm_cfg = {
             "api_url": settings.llm_api_url,
             "api_key": (
@@ -272,13 +276,15 @@ def run_monthly_efficiency_aggregation():
             "timeout": settings.llm_timeout,
             "max_retries": settings.llm_max_retries,
             "retry_delay": settings.llm_retry_delay,
+            "review_max_tokens": settings.review_max_tokens or 10000,
         }
-        top_n = getattr(settings, "efficiency_work_summary_top_n", 10) or 10
+        top_n = settings.efficiency_work_summary_top_n or 5
 
         aggregator = EfficiencyMonthlyAggregator(
             db=db,
             llm_config=llm_cfg,
             top_n=top_n,
+            custom_prompt_template=settings.efficiency_monthly_prompt_template,
         )
         result = aggregator.aggregate(year_month)
         logger.info(f"月度能效聚合任务完成: {result}")

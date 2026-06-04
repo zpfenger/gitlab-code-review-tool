@@ -128,13 +128,14 @@ def _run_daily_recompute(start: date, end: date, force: bool):
             )
 
         llm_cfg = _build_llm_config(settings)
-        top_n = getattr(settings, "efficiency_work_summary_top_n", 5) or 5
+        top_n = settings.efficiency_work_summary_top_n or 5
 
         aggregator = EfficiencyAggregator(
             db=db,
             gitlab_client_factory=_factory,
             llm_config=llm_cfg,
             top_n=top_n,
+            custom_prompt_template=settings.efficiency_prompt_template,
         )
 
         current = start
@@ -212,12 +213,13 @@ def _run_monthly_recompute(year_month: str, force: bool):
             return
 
         llm_cfg = _build_llm_config(settings)
-        top_n = getattr(settings, "efficiency_work_summary_top_n", 10) or 10
+        top_n = settings.efficiency_work_summary_top_n or 5
 
         aggregator = EfficiencyMonthlyAggregator(
             db=db,
             llm_config=llm_cfg,
             top_n=top_n,
+            custom_prompt_template=settings.efficiency_monthly_prompt_template,
         )
         result = aggregator.aggregate(year_month)
 
