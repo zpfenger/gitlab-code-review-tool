@@ -103,15 +103,15 @@
                     <div class="widget-card-body">
                         <div style="display: flex; flex-direction: column; gap: var(--space-3);">
                             {% if 'system_admin' in current_user_roles or 'project_admin' in current_user_roles %}
-                            <button class="btn btn-primary" onclick="runAllTasks()">
+                            <button class="btn btn-primary btn-lg" onclick="runAllTasks()">
                                 <i class="bi bi-play-fill"></i> 立即执行所有任务
                             </button>
-                            <a href="/projects?action=add" class="btn btn-secondary">
+                            <a href="/projects?action=add" class="btn btn-secondary btn-lg">
                                 <i class="bi bi-plus-circle"></i> 添加新项目
                             </a>
                             {% endif %}
                             {% if 'system_admin' in current_user_roles %}
-                            <a href="/settings" class="btn btn-secondary">
+                            <a href="/settings" class="btn btn-secondary btn-lg">
                                 <i class="bi bi-gear"></i> 系统设置
                             </a>
                             {% endif %}
@@ -125,7 +125,7 @@
                         <div class="widget-card-title">
                             <i class="bi bi-clock-history"></i> 最近任务
                         </div>
-                        <div style="position: absolute;top: 7px;right: 10px;">
+                        <div style="position: absolute;top: 6px;right: 10px;">
                             <a href="/logs" class="btn btn-sm btn-secondary">查看全部</a>
                         </div>
                     </div>
@@ -177,7 +177,7 @@
                     <div class="widget-card-title">
                         <i class="bi bi-list-check"></i> 任务执行记录
                     </div>
-                    <div style="position: absolute;top: 7px;right: 10px;">
+                    <div style="position: absolute;top: 6px;right: 10px;">
                         <a href="/logs" class="btn btn-sm btn-secondary">查看全部</a>
                     </div>
                 </div>

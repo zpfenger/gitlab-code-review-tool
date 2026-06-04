@@ -234,18 +234,22 @@ body {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    padding-bottom: var(--space-3);
 }
 
 .page-title {
-    font-size: var(--text-2xl);
+    font-size: var(--text-lg);
     font-weight: 700;
     color: var(--color-slate-900);
+    display: inline;
+    padding-right: var(--space-2);
 }
 
 .page-subtitle {
     color: var(--color-slate-500);
     font-size: var(--text-sm);
     margin-top: var(--space-1);
+    display: inline;
 }
 
 /* ============================================
@@ -257,7 +261,7 @@ body {
     justify-content: center;
     gap: var(--space-2);
     padding: 0 var(--space-4);
-    height: 32px;
+    height: 35px;
     font-family: var(--font-sans);
     font-size: var(--text-sm);
     font-weight: 500;
@@ -267,6 +271,10 @@ body {
     cursor: pointer;
     transition: all var(--transition-fast);
     text-decoration: none;
+}
+
+.btn-lg{
+    height: 54px;
 }
 
 .btn-primary {
@@ -574,7 +582,7 @@ body {
     border-radius: var(--radius-md);
     transition: all var(--transition-fast);
     background: var(--color-white);
-    height: 32px;
+    height: 35px;
     box-sizing: border-box;
 }
 
