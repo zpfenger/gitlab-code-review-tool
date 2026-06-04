@@ -196,8 +196,9 @@ def get_efficiency_daily(
     # 构造响应
     result = {
         "date": target_date.isoformat(),
+        "generated_at": max(r.updated_at for r in rows).isoformat() if rows else None,
         "llm_status": overall_status,
-        "items": [_serialize(r) for r in rows],
+        "items": [_serialize(r) for r in rows] if overall_status == "success" else [],
     }
 
     # 非 success 时附加提示

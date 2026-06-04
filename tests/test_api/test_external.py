@@ -432,6 +432,7 @@ class TestGetEfficiencyDaily:
         assert data["date"] == yesterday.isoformat()
         assert data["llm_status"] == "success"
         assert "message" not in data
+        assert "generated_at" in data
         assert len(data["items"]) == 2
         assert data["items"][0]["author_email"] in ("a@example.com", "b@example.com")
 
@@ -473,7 +474,7 @@ class TestGetEfficiencyDaily:
         body = response.json()
         data = body["data"]
         assert data["llm_status"] == "pending"
-        assert len(data["items"]) == 1
+        assert data["items"] == []
         assert "尚未生成" in data["message"]
 
     @patch('app.api.external.security_service')
@@ -495,7 +496,7 @@ class TestGetEfficiencyDaily:
         body = response.json()
         data = body["data"]
         assert data["llm_status"] == "failed"
-        assert len(data["items"]) == 1
+        assert data["items"] == []
         assert "失败" in data["message"]
 
     @patch('app.api.external.security_service')
@@ -517,6 +518,7 @@ class TestGetEfficiencyDaily:
         body = response.json()
         data = body["data"]
         assert data["llm_status"] == "skipped"
+        assert data["items"] == []
         assert "跳过" in data["message"]
 
     @patch('app.api.external.security_service')
@@ -543,7 +545,7 @@ class TestGetEfficiencyDaily:
         body = response.json()
         data = body["data"]
         assert data["llm_status"] == "partial"
-        assert len(data["items"]) == 2
+        assert data["items"] == []
         assert "未完成" in data["message"]
 
     @patch('app.api.external.security_service')
