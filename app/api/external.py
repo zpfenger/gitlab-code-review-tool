@@ -175,6 +175,7 @@ def get_efficiency_daily(
         return ApiResponse.ok(
             data={
                 "date": target_date.isoformat(),
+                "generated_at": None,
                 "llm_status": "pending",
                 "message": "能效数据尚未生成，请稍后重试",
                 "items": [],
@@ -196,7 +197,7 @@ def get_efficiency_daily(
     # 构造响应
     result = {
         "date": target_date.isoformat(),
-        "generated_at": max(r.updated_at for r in rows).isoformat() if rows else None,
+        "generated_at": max(r.updated_at for r in rows).isoformat(),
         "llm_status": overall_status,
         "items": [_serialize(r) for r in rows] if overall_status == "success" else [],
     }

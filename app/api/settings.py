@@ -114,7 +114,10 @@ async def update_settings(
     # 保存后刷新调度器
     _refresh_scheduler(settings)
 
-    return ApiResponse(success=True, data=settings, message="设置已更新")
+    # 响应中脱敏显示 API Key
+    response_data = SettingsResponse.model_validate(settings)
+    response_data.external_api_key = _mask_api_key(settings.external_api_key)
+    return ApiResponse(success=True, data=response_data, message="设置已更新")
 
 
 def _refresh_scheduler(settings: Settings):
