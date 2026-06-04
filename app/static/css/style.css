@@ -225,8 +225,8 @@ body {
    ============================================ */
 .main-content {
     flex: 1;
-    margin-left: 190px;
-    padding: var(--space-4);
+    margin-left: 175px;
+    padding: var(--space-3);
     min-height: 100vh;
 }
 
@@ -257,7 +257,7 @@ body {
     justify-content: center;
     gap: var(--space-2);
     padding: 0 var(--space-4);
-    height: 40px;
+    height: 32px;
     font-family: var(--font-sans);
     font-size: var(--text-sm);
     font-weight: 500;
@@ -574,15 +574,15 @@ body {
     border-radius: var(--radius-md);
     transition: all var(--transition-fast);
     background: var(--color-white);
-    height: 40px;
+    height: 32px;
     box-sizing: border-box;
 }
 
 input[type="password"].form-input {
-    height: 40px;
+    height: 32px;
     padding-top: 0;
     padding-bottom: 0;
-    line-height: 40px;
+    line-height: 32px;
 }
 
 .form-input:focus {
@@ -1172,7 +1172,7 @@ code {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: var(--space-4) var(--space-6);
+    padding: var(--space-3) var(--space-3);
     border-bottom: 1px solid var(--color-slate-200);
     background: transparent;
 }
@@ -1187,7 +1187,7 @@ code {
 }
 
 .panel-body {
-    padding: var(--space-6);
+    padding: var(--space-3);
 }
 
 .panel-footer {
@@ -1202,8 +1202,8 @@ code {
 .filter-form {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-    gap: var(--space-4);
-    margin-bottom: var(--space-4);
+    gap: var(--space-3);
+    margin-bottom: var(--space-3);
 }
 
 .filter-form .form-group {
@@ -1215,7 +1215,7 @@ code {
     font-size: var(--text-sm);
     font-weight: 500;
     color: var(--color-slate-600);
-    margin-bottom: var(--space-2);
+    margin-bottom: var(--space-1);
 }
 
 /* ============================================
@@ -1225,7 +1225,7 @@ code {
     display: flex;
     align-items: center;
     gap: var(--space-3);
-    padding: var(--space-4) 0;
+    padding: var(--space-3) 0;
     border-top: 1px dashed var(--color-slate-200);
     flex-wrap: wrap;
 }
@@ -1454,7 +1454,7 @@ code {
 }
 
 .page-size-selector select {
-    padding: var(--space-2) var(--space-4);
+    padding: var(--space-1) var(--space-4);
     border: 1px solid var(--color-slate-200);
     border-radius: var(--radius-md);
     font-size: var(--text-sm);
@@ -1542,7 +1542,7 @@ code {
 
 .desktop-tab-item {
     position: relative;
-    padding: var(--space-3) var(--space-5);
+    padding: var(--space-2) var(--space-5);
     font-size: var(--text-sm);
     color: var(--color-slate-600);
     cursor: pointer;
@@ -1565,7 +1565,7 @@ code {
     background: var(--color-white);
     border-color: var(--color-slate-200);
     margin-bottom: -1px;
-    padding-bottom: var(--space-4);
+    /*padding-bottom: var(--space-4);*/
 }
 
 .desktop-tab-badge {
@@ -1588,7 +1588,7 @@ code {
     border: 1px solid var(--color-slate-200);
     border-top: none;
     border-radius: 0 0 var(--radius-lg) var(--radius-lg);
-    padding: var(--space-4);
+    padding: var(--space-3);
     min-height: 400px;
 }
 
@@ -1643,7 +1643,7 @@ code {
 }
 
 .widget-card-body {
-    padding: var(--space-4);
+    padding: var(--space-3);
     min-height: 120px;
 }
 

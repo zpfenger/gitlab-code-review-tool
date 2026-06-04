@@ -121,11 +121,13 @@
 
                 <!-- 最近任务 -->
                 <div class="widget-card">
-                    <div class="widget-card-header">
+                    <div class="widget-card-header" style="position: relative;">
                         <div class="widget-card-title">
                             <i class="bi bi-clock-history"></i> 最近任务
                         </div>
-                        <a href="/logs" class="btn btn-sm btn-secondary">查看全部</a>
+                        <div style="position: absolute;top: 7px;right: 10px;">
+                            <a href="/logs" class="btn btn-sm btn-secondary">查看全部</a>
+                        </div>
                     </div>
                     <div class="widget-card-body no-padding">
                         {% if recent_tasks %}
@@ -171,11 +173,13 @@
         <!-- 任务动态 Tab -->
         <div id="tab-tasks" class="tab-pane" style="display: none;">
             <div class="widget-card">
-                <div class="widget-card-header">
+                <div class="widget-card-header" style="position: relative;">
                     <div class="widget-card-title">
                         <i class="bi bi-list-check"></i> 任务执行记录
                     </div>
-                    <a href="/logs" class="btn btn-sm btn-secondary">查看全部</a>
+                    <div style="position: absolute;top: 7px;right: 10px;">
+                        <a href="/logs" class="btn btn-sm btn-secondary">查看全部</a>
+                    </div>
                 </div>
                 <div class="widget-card-body no-padding">
                     {% if recent_tasks %}
