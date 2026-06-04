@@ -145,12 +145,17 @@ def get_efficiency_daily(
     date_str: Optional[str] = Query(
         None, alias="date", description="查询日期 YYYY-MM-DD，默认为前一天"
     ),
+    email: Optional[str] = Query(
+        None,
+        description="按邮箱筛选，多个用英文逗号分隔；不传则返回所有人员",
+    ),
 ) -> ApiResponse:
     """查询指定日期的能效数据
 
     - 默认查询前一天的数据
     - 返回每个员工的能效记录及 llm_status
     - 当 llm_status 为 pending/failed/skipped 时，返回提示信息
+    - 支持通过 email 参数按邮箱筛选指定人员，多个邮箱用英文逗号分隔
     """
     # 解析日期参数，默认前一天
     if date_str:
@@ -163,12 +168,20 @@ def get_efficiency_daily(
     else:
         target_date = date.today() - timedelta(days=1)
 
-    # 查询该日期的所有记录
-    rows = (
-        db.query(EmployeeEfficiencyDaily)
-        .filter(EmployeeEfficiencyDaily.stat_date == target_date)
-        .all()
+    # 构建查询
+    query = db.query(EmployeeEfficiencyDaily).filter(
+        EmployeeEfficiencyDaily.stat_date == target_date
     )
+
+    # 按邮箱筛选
+    if email:
+        email_list = [e.strip() for e in email.split(",") if e.strip()]
+        if email_list:
+            query = query.filter(
+                EmployeeEfficiencyDaily.author_email.in_(email_list)
+            )
+
+    rows = query.all()
 
     # 无记录视为 pending
     if not rows:

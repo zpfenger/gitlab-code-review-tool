@@ -620,3 +620,107 @@ class TestGetEfficiencyDaily:
             "work_summary", "llm_status", "llm_error",
         }
         assert expected_keys == set(item.keys())
+
+    @patch('app.api.external.security_service')
+    def test_email_filter_single(self, mock_security, client, db_session):
+        """传入单个邮箱时只返回该人员数据"""
+        _setup_api_key(db_session, mock_security)
+        yesterday = date.today() - timedelta(days=1)
+
+        db_session.add(_make_row(
+            author_email="a@example.com", author_name="Alice",
+            stat_date=yesterday, llm_status="success",
+        ))
+        db_session.add(_make_row(
+            author_email="b@example.com", author_name="Bob",
+            stat_date=yesterday, llm_status="success",
+        ))
+        db_session.commit()
+
+        response = client.get(
+            "/api/external/efficiency/daily",
+            headers=API_HEADERS,
+            params={"date": yesterday.isoformat(), "email": "a@example.com"},
+        )
+        assert response.status_code == 200
+        data = response.json()["data"]
+        assert len(data["items"]) == 1
+        assert data["items"][0]["author_email"] == "a@example.com"
+
+    @patch('app.api.external.security_service')
+    def test_email_filter_multiple(self, mock_security, client, db_session):
+        """传入多个逗号分隔邮箱时返回指定人员数据"""
+        _setup_api_key(db_session, mock_security)
+        yesterday = date.today() - timedelta(days=1)
+
+        for email, name in [
+            ("a@example.com", "Alice"),
+            ("b@example.com", "Bob"),
+            ("c@example.com", "Charlie"),
+        ]:
+            db_session.add(_make_row(
+                author_email=email, author_name=name,
+                stat_date=yesterday, llm_status="success",
+            ))
+        db_session.commit()
+
+        response = client.get(
+            "/api/external/efficiency/daily",
+            headers=API_HEADERS,
+            params={
+                "date": yesterday.isoformat(),
+                "email": "a@example.com,c@example.com",
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()["data"]
+        assert len(data["items"]) == 2
+        returned_emails = {item["author_email"] for item in data["items"]}
+        assert returned_emails == {"a@example.com", "c@example.com"}
+
+    @patch('app.api.external.security_service')
+    def test_email_filter_no_match(self, mock_security, client, db_session):
+        """邮箱不匹配时返回空列表"""
+        _setup_api_key(db_session, mock_security)
+        yesterday = date.today() - timedelta(days=1)
+
+        db_session.add(_make_row(
+            author_email="a@example.com", stat_date=yesterday,
+            llm_status="success",
+        ))
+        db_session.commit()
+
+        response = client.get(
+            "/api/external/efficiency/daily",
+            headers=API_HEADERS,
+            params={"date": yesterday.isoformat(), "email": "nobody@example.com"},
+        )
+        assert response.status_code == 200
+        data = response.json()["data"]
+        assert data["llm_status"] == "pending"
+        assert data["items"] == []
+
+    @patch('app.api.external.security_service')
+    def test_email_not_passed_returns_all(self, mock_security, client, db_session):
+        """不传 email 参数时返回所有人员数据"""
+        _setup_api_key(db_session, mock_security)
+        yesterday = date.today() - timedelta(days=1)
+
+        db_session.add(_make_row(
+            author_email="a@example.com", stat_date=yesterday,
+            llm_status="success",
+        ))
+        db_session.add(_make_row(
+            author_email="b@example.com", stat_date=yesterday,
+            llm_status="success",
+        ))
+        db_session.commit()
+
+        response = client.get(
+            "/api/external/efficiency/daily",
+            headers=API_HEADERS,
+            params={"date": yesterday.isoformat()},
+        )
+        assert response.status_code == 200
+        data = response.json()["data"]
+        assert len(data["items"]) == 2

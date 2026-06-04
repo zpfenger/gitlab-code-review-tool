@@ -378,6 +378,90 @@ sudo journalctl -u gitlab-code-review --since "-1 hour"      # 最近 1 小时
 | GET | `/api/efficiency/monthly/detail` | 月度单人详情（月度总结、日度明细） |
 | POST | `/api/efficiency/monthly/recompute` | 月度补算（系统管理员） |
 
+### 外部接口（External API）
+
+> 需在请求头携带 `X-API-Key` 进行认证，密钥在系统设置中配置。
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/external/efficiency/daily` | 指定日期的人员能效数据 |
+| GET | `/api/external/efficiency/list` | 人员能效分页列表 |
+
+#### GET /api/external/efficiency/daily
+
+查询指定日期的人员能效数据，支持按邮箱筛选。
+
+**请求参数：**
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `date` | string | 否 | 查询日期，格式 `YYYY-MM-DD`，默认前一天 |
+| `email` | string | 否 | 按邮箱筛选，多个用英文逗号分隔；不传则返回所有人员 |
+
+**请求示例：**
+
+```bash
+# 查询所有人员
+curl -H "X-API-Key: YOUR_KEY" \
+  "http://localhost:5001/api/external/efficiency/daily?date=2026-06-03"
+
+# 查询指定人员（单个邮箱）
+curl -H "X-API-Key: YOUR_KEY" \
+  "http://localhost:5001/api/external/efficiency/daily?date=2026-06-03&email=zhangsan@example.com"
+
+# 查询多个指定人员（逗号分隔）
+curl -H "X-API-Key: YOUR_KEY" \
+  "http://localhost:5001/api/external/efficiency/daily?date=2026-06-03&email=zhangsan@example.com,lisi@example.com"
+```
+
+**响应示例（成功）：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "date": "2026-06-03",
+    "generated_at": "2026-06-04T02:15:30",
+    "llm_status": "success",
+    "items": [
+      {
+        "id": 1,
+        "author_email": "zhangsan@example.com",
+        "author_name": "张三",
+        "stat_date": "2026-06-03",
+        "commits_count": 5,
+        "additions": 120,
+        "deletions": 30,
+        "files_changed": 8,
+        "new_files": 1,
+        "deleted_files": 0,
+        "projects_involved": ["project-a"],
+        "review_score": 85,
+        "review_grade": "良好",
+        "review_summary": "...",
+        "work_summary": "...",
+        "llm_status": "success",
+        "llm_error": null
+      }
+    ]
+  }
+}
+```
+
+#### GET /api/external/efficiency/list
+
+人员能效分页列表，支持日期范围和邮箱筛选。
+
+**请求参数：**
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `author_email` | string | 否 | 按邮箱精确筛选 |
+| `start_date` | string | 否 | 开始日期 `YYYY-MM-DD` |
+| `end_date` | string | 否 | 结束日期 `YYYY-MM-DD` |
+| `page` | int | 否 | 页码，默认 1 |
+| `page_size` | int | 否 | 每页条数，默认 20，最大 100 |
+
 ---
 
 ## 权限体系
