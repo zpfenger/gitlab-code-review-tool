@@ -7,6 +7,8 @@
 """
 from __future__ import annotations
 
+import hmac
+import logging
 from datetime import date, timedelta
 from typing import Optional
 
@@ -19,6 +21,8 @@ from app.models.employee_efficiency import EmployeeEfficiencyDaily
 from app.models.settings import Settings
 from app.schemas.response import ApiResponse
 from app.security import security_service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/external", tags=["external"])
 
@@ -42,6 +46,7 @@ def verify_api_key(
     """
     settings = db.query(Settings).first()
     if not settings or not settings.external_api_key:
+        logger.warning("外部 API 认证失败：未配置 External API Key")
         raise HTTPException(
             status_code=401,
             detail="外部 API 未配置，请联系管理员设置 External API Key",
@@ -50,12 +55,14 @@ def verify_api_key(
     try:
         stored_key = security_service.decrypt(settings.external_api_key)
     except ValueError:
+        logger.warning("外部 API 认证失败：API Key 解密失败")
         raise HTTPException(
             status_code=401,
             detail="API Key 解密失败，请联系管理员重新配置",
         )
 
-    if x_api_key != stored_key:
+    if not hmac.compare_digest(x_api_key.encode(), stored_key.encode()):
+        logger.warning("外部 API 认证失败：无效的 API Key")
         raise HTTPException(
             status_code=401,
             detail="无效的 API Key",
