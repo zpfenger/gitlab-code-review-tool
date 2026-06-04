@@ -908,6 +908,7 @@ def run_scheduled_task(task_type: str = 'daily'):
                     "timeout": settings.llm_timeout,
                     "max_retries": settings.llm_max_retries,
                     "retry_delay": settings.llm_retry_delay,
+                    "review_max_tokens": settings.review_max_tokens or 10000,
                 }
 
                 top_n = getattr(settings, "efficiency_work_summary_top_n", 5) or 5

@@ -173,7 +173,6 @@ class EfficiencyAggregator:
     ) -> None:
         """对单个作者调 LLM 并 UPSERT"""
         commits_text = "\n".join(data["messages"])
-        diffs_text = "\n\n".join(data["diffs_text"])
 
         llm_result = call_and_parse(
             api_url=self.llm_config["api_url"],
@@ -181,13 +180,14 @@ class EfficiencyAggregator:
             model=self.llm_config["model"],
             author_name=data["author_name"],
             commits_text=commits_text,
-            diffs_text=diffs_text,
+            diffs=data["diffs_text"],
             top_n=self.top_n,
             max_tokens=self.llm_config.get("max_tokens", 4096),
             temperature=self.llm_config.get("temperature", 0.7),
             timeout=self.llm_config.get("timeout", 240),
             max_retries=self.llm_config.get("max_retries", 3),
             retry_delay=self.llm_config.get("retry_delay", 10),
+            review_max_tokens=self.llm_config.get("review_max_tokens", 10000),
         )
 
         existing = (self.db.query(EmployeeEfficiencyDaily)

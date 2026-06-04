@@ -5,6 +5,8 @@ from typing import List, Dict, Optional
 import httpx
 from loguru import logger
 
+from app.services.truncate_utils import truncate_text
+
 
 # ── 默认 Prompt ────────────────────────────────────────────────
 DEFAULT_SYSTEM_PROMPT = """你是一位资深的软件开发工程师，专注于代码的规范性、功能性、安全性和稳定性。本次任务是对员工的代码进行审查，具体要求如下：
@@ -50,12 +52,8 @@ def _build_system_prompt(style: str, custom_prompt: Optional[str] = None) -> str
 
 
 def _truncate_text(text: str, max_tokens: int) -> str:
-    """简易 token 截断（按字符近似，1 token ≈ 4 字符）"""
-    max_chars = max_tokens * 4
-    if len(text) <= max_chars:
-        return text
-    logger.warning(f"文本长度 {len(text)} 超过限制 {max_chars}，已截断")
-    return text[:max_chars] + "\n\n... (内容已截断)"
+    """简易 token 截断 — 委托给共享截断工具"""
+    return truncate_text(text, max_tokens)
 
 
 class WebhookReviewer:

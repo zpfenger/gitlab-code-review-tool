@@ -88,6 +88,7 @@ def _build_llm_config(settings):
         "timeout": settings.llm_timeout,
         "max_retries": settings.llm_max_retries,
         "retry_delay": settings.llm_retry_delay,
+        "review_max_tokens": settings.review_max_tokens or 10000,
     }
 
 

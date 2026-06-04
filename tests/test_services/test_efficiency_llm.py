@@ -138,7 +138,7 @@ def test_call_and_parse_returns_failure_dict_when_llm_none():
     with patch("app.services.efficiency_llm.call_llm", return_value=None):
         result = call_and_parse(
             api_url="x", api_key="x", model="m",
-            author_name="A", commits_text="", diffs_text="",
+            author_name="A", commits_text="", diffs=[],
         )
     assert result["success"] is False
     assert result["score"] == 0
@@ -161,7 +161,7 @@ def test_call_and_parse_returns_parsed_fields_on_success():
     with patch("app.services.efficiency_llm.call_llm", return_value=fake_raw):
         result = call_and_parse(
             api_url="x", api_key="x", model="m",
-            author_name="A", commits_text="x", diffs_text="x",
+            author_name="A", commits_text="x", diffs=["--- a.py ---\n+x"],
         )
     assert result["success"] is True
     assert result["score"] == 92
