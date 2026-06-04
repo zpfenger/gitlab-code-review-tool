@@ -39,7 +39,8 @@ async def update_settings(
 
     # 敏感字段：前端传空字符串或 null 时保留原值，有值时加密存储
     sensitive_fields = ['global_gitlab_token', 'llm_api_key', 'global_svn_password',
-                        'dingtalk_webhook_url', 'wecom_webhook_url', 'feishu_webhook_url']
+                        'dingtalk_webhook_url', 'wecom_webhook_url', 'feishu_webhook_url',
+                        'external_api_key']
     update_data = data.model_dump(exclude_unset=True)
 
     for field in sensitive_fields:

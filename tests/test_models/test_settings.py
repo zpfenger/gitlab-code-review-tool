@@ -1,5 +1,6 @@
 import pytest
 from app.models.settings import Settings
+from app.security import security_service
 
 
 class TestSettings:
@@ -42,3 +43,57 @@ class TestSettings:
         assert settings.llm_max_retries == 3
         assert settings.llm_retry_delay == 5
         assert settings.max_commits_per_run == 100
+
+    def test_external_api_key_field_nullable(self, db_session):
+        """测试 external_api_key 字段可为 null"""
+        settings = Settings(
+            global_gitlab_url="https://gitlab.example.com",
+            llm_api_url="https://api.example.com/v1",
+            llm_model="gpt-4",
+            report_output_dir="./reports"
+        )
+        db_session.add(settings)
+        db_session.commit()
+
+        assert settings.external_api_key is None
+
+    def test_external_api_key_encrypted_storage(self, db_session):
+        """测试 external_api_key 加密存储"""
+        plaintext_key = "hr-system-api-key-12345"
+        encrypted_key = security_service.encrypt(plaintext_key)
+
+        settings = Settings(
+            global_gitlab_url="https://gitlab.example.com",
+            llm_api_url="https://api.example.com/v1",
+            llm_model="gpt-4",
+            report_output_dir="./reports",
+            external_api_key=encrypted_key
+        )
+        db_session.add(settings)
+        db_session.commit()
+        db_session.refresh(settings)
+
+        # 存储的值应该是加密的，不是明文
+        assert settings.external_api_key != plaintext_key
+        # 解密后应得到原始明文
+        assert security_service.decrypt(settings.external_api_key) == plaintext_key
+
+    def test_external_api_key_update(self, db_session):
+        """测试 external_api_key 字段可正常更新"""
+        settings = Settings(
+            global_gitlab_url="https://gitlab.example.com",
+            llm_api_url="https://api.example.com/v1",
+            llm_model="gpt-4",
+            report_output_dir="./reports",
+            external_api_key=security_service.encrypt("old-key")
+        )
+        db_session.add(settings)
+        db_session.commit()
+
+        # 更新为新值
+        new_key = "new-hr-api-key-67890"
+        settings.external_api_key = security_service.encrypt(new_key)
+        db_session.commit()
+        db_session.refresh(settings)
+
+        assert security_service.decrypt(settings.external_api_key) == new_key

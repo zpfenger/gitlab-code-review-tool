@@ -38,6 +38,9 @@ class SettingsBase(BaseModel):
     # 全局调度开关
     scheduler_enabled: bool = True
 
+    # 外部 API 配置
+    external_api_key: Optional[str] = None
+
     # 人员能效配置
     efficiency_enabled: bool = True
     efficiency_work_summary_top_n: int = Field(default=5, ge=1, le=20)
@@ -125,6 +128,9 @@ class SettingsUpdate(BaseModel):
     weekly_review_days: Optional[int] = None
     weekly_enabled: Optional[bool] = None
     scheduler_enabled: Optional[bool] = None
+    # 外部 API 配置
+    external_api_key: Optional[str] = None
+
     # 人员能效配置
     efficiency_enabled: Optional[bool] = None
     efficiency_work_summary_top_n: Optional[int] = Field(None, ge=1, le=20)
