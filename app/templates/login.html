@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>登录 - GitLab 代码审查工具</title>
+    <link rel="stylesheet" href="https://renruiplugins.oss-cn-beijing.aliyuncs.com/static/plugins/font-awesome/css/font-awesome.min.css?">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -11,396 +12,315 @@
     <link href="/static/vendor/bootstrap-icons/bootstrap-icons.css" rel="stylesheet">
     <link rel="icon" href="/static/favicon.ico" type="image/x-icon">
     <style>
-        * { box-sizing: border-box; }
-        body {
-            margin: 0;
-            padding: 0;
-            font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
-            background: #f0f2f5;
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
+        body, button, input, select, textarea {
+            font: 12px "微软雅黑";
         }
 
-        /* ===== 顶部 Logo 栏 ===== */
-        .login-top {
-            background: #1a1f2e;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.4);
+        .login-orange-ui {
+            background-color: transparent;
+        }
+
+        .login-orange-ui .login-top {
+            box-shadow: 0 0 15px rgba(0, 0, 0, 0.05);
             position: relative;
-            z-index: 2;
-            flex-shrink: 0;
-        }
-        .login-top .top-inner {
-            width: 1200px;
-            max-width: 100%;
-            margin: 0 auto;
-            height: 70px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 0 24px;
-        }
-        .login-top .brand {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            color: #fff;
-            text-decoration: none;
-            font-size: 19px;
-            font-weight: 600;
-            letter-spacing: 0.3px;
-        }
-        .login-top .brand i {
-            font-size: 26px;
-            color: #4f8ef7;
-        }
-        .login-top .tagline {
-            color: rgba(255,255,255,0.4);
-            font-size: 12px;
-            letter-spacing: 0.5px;
-        }
-
-        /* ===== Banner 主区域 ===== */
-        .login-banner {
-            flex: 1;
-            position: relative;
-            overflow: hidden;
-            background: linear-gradient(135deg, #151a28 0%, #1e2d4d 45%, #162540 100%);
-            min-height: 520px;
-        }
-
-        /* 网格装饰 */
-        .login-banner::before {
-            content: '';
-            position: absolute;
-            inset: 0;
-            background-image:
-                linear-gradient(rgba(79,142,247,0.07) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(79,142,247,0.07) 1px, transparent 1px);
-            background-size: 50px 50px;
-            pointer-events: none;
-        }
-
-        /* 光晕装饰 */
-        .glow-orb {
-            position: absolute;
-            border-radius: 50%;
-            pointer-events: none;
-            filter: blur(60px);
-            opacity: 0.4;
-        }
-        .glow-orb-1 {
-            width: 500px; height: 500px;
-            background: radial-gradient(circle, rgba(79,142,247,0.35) 0%, transparent 70%);
-            top: 50%; left: 28%;
-            transform: translate(-50%, -50%);
-        }
-        .glow-orb-2 {
-            width: 300px; height: 300px;
-            background: radial-gradient(circle, rgba(99,102,241,0.3) 0%, transparent 70%);
-            top: 20%; left: 55%;
-        }
-
-        /* 左侧宣传文字区 */
-        .banner-copy {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-68%, -50%);
-            color: #fff;
             z-index: 1;
-            max-width: 460px;
-        }
-        .banner-copy .eyebrow {
-            font-size: 12px;
-            font-weight: 600;
-            color: #4f8ef7;
-            letter-spacing: 2px;
-            text-transform: uppercase;
-            margin-bottom: 12px;
-        }
-        .banner-copy h1 {
-            font-size: 30px;
-            font-weight: 700;
-            line-height: 1.4;
-            margin-bottom: 14px;
-            color: #fff;
-        }
-        .banner-copy h1 em {
-            font-style: normal;
-            color: #60a5fa;
-        }
-        .banner-copy .desc {
-            font-size: 14px;
-            color: rgba(255,255,255,0.55);
-            line-height: 1.75;
-            margin-bottom: 28px;
-        }
-        .banner-features {
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-        }
-        .feat-row {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            font-size: 13px;
-            color: rgba(255,255,255,0.7);
-        }
-        .feat-row i {
-            color: #4f8ef7;
-            font-size: 15px;
-            width: 18px;
-            flex-shrink: 0;
         }
 
-        /* ===== 右侧登录卡片 ===== */
-        .login-card {
+        .login-orange-ui .login-top .bg {
+            overflow: hidden;
+            width: 1200px;
+            margin: 0 auto;
+            height: 100px;
+        }
+
+        .login-orange-ui .login-top .left {
+            float: left;
+            padding-top: 26px;
+        }
+
+        .login-orange-ui .login-top .right {
+            float: right;
+            padding: 42px 0 0 0;
+        }
+
+        .login-orange-ui .login-input {
+            position: relative;
+            width: 100%;
+            overflow: hidden;
+            height: 540px;
+            background-color: #f6f6f6;
+        }
+
+        .login-orange-ui .login-input .bg {
             position: absolute;
-            top: 50%;
-            right: 50%;
-            margin-right: -595px;
-            transform: translateY(-50%);
+            top: 0;
+            left: 50%;
+            margin-left: -960px;
+        }
+
+        .login-orange-ui .login-input .right-bottom {
+            position: absolute;
+            top: 440px;
+            left: 50%;
+            margin-left: 210px;
             width: 370px;
-            background: #fff;
-            border-radius: 8px;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.3), 0 1px 3px rgba(0,0,0,0.2);
-            z-index: 3;
+            text-align: center;
+            color: #fff;
+            line-height: 21px;
+        }
+
+        .login-orange-ui .login-edit {
+            background-color: #fff;
+            width: 370px;
+            height: 320px;
+            position: absolute;
+            top: 100px;
+            left: 50%;
+            margin-left: 210px;
+            box-shadow: 0 0 15px rgba(0, 0, 0, 0.2);
+            border-radius: 5px;
+
+            .login-err {
+                color: red;
+                text-align: center;
+                padding-top: 10px;
+                display: none;
+            }
+            .login-err.show {
+                display: block;
+            }
+        }
+
+        .login-orange-ui .login-edit h3 {
+            font-size: 22px;
+            font-weight: bold;
+            text-align: center;
+            border-bottom: 1px solid #eee;
+            line-height: 65px;
+            padding-top: 10px;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+        }
+
+        .login-orange-ui .login-edit ul {
+            padding: 10px 25px;
+        }
+
+        .login-orange-ui .login-edit li {
+            padding-top: 20px;
+            position: relative;
             overflow: hidden;
         }
 
-        /* 卡片头 */
-        .card-head {
-            background: #1a1f2e;
-            padding: 26px 28px 22px;
-            text-align: center;
-            border-bottom: 1px solid rgba(255,255,255,0.07);
-        }
-        .card-head i {
-            font-size: 38px;
-            color: #4f8ef7;
-        }
-        .card-head h3 {
-            font-size: 17px;
-            font-weight: 600;
-            color: #fff;
-            margin: 10px 0 4px;
-            letter-spacing: 0.3px;
+        .login-orange-ui .login-edit li:first-child {
+            margin-top: -10px;
         }
 
-        /* 卡片体 */
-        .card-body {
-            padding: 26px 28px 24px;
-        }
-
-        /* 错误提示 */
-        .login-err {
-            display: none;
-            align-items: center;
-            gap: 8px;
-            background: #fff2f0;
-            border: 1px solid #ffccc7;
-            border-radius: 5px;
-            padding: 10px 13px;
-            font-size: 13px;
-            color: #cf1322;
-            margin-bottom: 18px;
-        }
-        .login-err.show {
-            display: flex;
-        }
-
-        /* 输入字段 */
-        .input-field {
-            margin-bottom: 18px;
-            position: relative;
-        }
-        .input-field label {
-            display: block;
-            font-size: 13px;
-            color: #555;
-            font-weight: 500;
-            margin-bottom: 6px;
-        }
-        .input-field .f-icon {
+        .login-orange-ui .login-edit li i {
             position: absolute;
+            top: 32px;
             left: 12px;
-            top: 50%;
-            transform: translateY(-50%);
-            margin-top: 6px;
-            color: #c0c0c0;
-            font-size: 15px;
-            pointer-events: none;
-            transition: color 0.2s;
-        }
-        .input-field input {
-            width: 100%;
-            height: 42px;
-            border: 1px solid #e2e2e2;
-            border-radius: 5px;
-            padding: 0 12px 0 38px;
-            font-size: 14px;
-            color: #333;
-            background: #fafafa;
-            outline: none;
-            transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
-        }
-        .input-field input:focus {
-            border-color: #4f8ef7;
-            background: #fff;
-            box-shadow: 0 0 0 3px rgba(79,142,247,0.12);
-        }
-        .input-field input:focus ~ .f-icon {
-            color: #4f8ef7;
+            color: #e6e6e6;
+            font-size: 19px;
         }
 
-        /* 登录按钮 */
-        .btn-login {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 7px;
-            width: 100%;
-            height: 42px;
-            border: none;
-            border-radius: 5px;
-            background: linear-gradient(135deg, #4f8ef7 0%, #2563eb 100%);
-            color: #fff;
-            font-size: 15px;
-            font-weight: 500;
+        .login-orange-ui .login-edit li span {
+            color: #ee5a2f;
+            margin-top: 2px;
+            display: inline-block;
+        }
+
+        .login-orange-ui .login-edit ul li a:hover {
+            color: #ee5a2f;
+        }
+
+        .login-orange-ui .login-edit li .unified-left {
+            float: left;
+        }
+
+        .login-orange-ui .login-edit li .unified-left label {
+            position: relative;
+            padding-left: 17px;
             cursor: pointer;
-            margin-top: 6px;
-            transition: opacity 0.2s, transform 0.15s, box-shadow 0.2s;
-            box-shadow: 0 3px 12px rgba(37,99,235,0.35);
-            letter-spacing: 0.5px;
-        }
-        .btn-login:hover {
-            opacity: 0.9;
-            transform: translateY(-1px);
-            box-shadow: 0 6px 18px rgba(37,99,235,0.4);
-        }
-        .btn-login:active {
-            transform: translateY(0);
-            opacity: 1;
-        }
-        .btn-login:disabled {
-            opacity: 0.65;
-            cursor: not-allowed;
-            transform: none;
         }
 
-        /* 浏览器提示 */
-        .browser-tip {
+        .login-orange-ui .login-edit li .unified-left label input {
             position: absolute;
-            bottom: 18px;
-            right: 50%;
-            margin-right: -595px;
-            width: 370px;
-            text-align: center;
-            color: rgba(255,255,255,0.3);
-            font-size: 12px;
-            line-height: 1.7;
-            z-index: 2;
+            top: 2px;
+            left: 0;
         }
 
-        /* ===== 响应式 ===== */
-        @media (max-width: 1000px) {
-            .banner-copy { display: none; }
-            .login-card {
-                position: relative;
-                top: auto; right: auto;
-                margin: 40px auto;
-                transform: none;
-            }
-            .login-banner {
-                display: flex;
-                align-items: flex-start;
-                justify-content: center;
-                padding-bottom: 40px;
-            }
-            .browser-tip { display: none; }
+        .login-orange-ui .login-edit li .unified-right {
+            float: right;
         }
-        @media (max-width: 480px) {
-            .login-card { width: calc(100% - 32px); margin: 24px 16px; }
-            .login-top .tagline { display: none; }
-            .card-body { padding: 22px 20px 20px; }
-            .card-head { padding: 20px 20px 16px; }
+
+        .login-orange-ui .login-edit li {
+            .unified-input {
+                width: 100%;
+                border: 1px solid #e6e6e6;
+                height: 40px;
+                font-size: 14px;
+                padding-left: 40px;
+                border-radius: 5px;
+            }
+
+            .unified-input::placeholder {
+                color: #ccc;
+            }
+        }
+
+        .login-orange-ui .login-edit li .unified-button {
+            width: 100%;
+            border: none;
+            height: 40px;
+            background-color: #ee5a2f;
+            color: #fff;
+            font-size: 14px;
+            border-radius: 5px;
+
+            i.bi{
+                display: none;
+            }
+        }
+
+        .login-orange-ui .login-record {
+            text-align: center;
+            line-height: 24px;
+            padding: 38px 0;
+            font-size: 12px;
+        }
+
+        .login-edit .switch {
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 40px;
+            height: 40px;
+            /*background: url("/images/auth/login-sprite.png") no-repeat;*/
+            cursor: pointer;
+        }
+
+        .login-edit .active {
+            background-position: -40px -40px;
+        }
+
+        .login-edit .code {
+            text-align: center;
+            display: none;
+            padding-top: 15px;
+        }
+
+        .login-edit .code img {
+            width: 230px;
+        }
+
+        .login-errors {
+            color: #ee5a2f;
+            font-size: 13px;
+            text-align: center;
+            margin-bottom: 5px;
+        }
+
+        @media (max-width: 1100px) {
+            .login-orange-ui {
+                background-color: #f8f8f8;
+            }
+
+            .login-orange-ui .login-top {
+                padding-top: 0 !important;
+                box-shadow: none;
+            }
+
+            .login-orange-ui .login-top .bg {
+                width: auto;
+            }
+
+            .login-orange-ui .login-top .left {
+                width: 100%;
+                text-align: center;
+            }
+
+            .login-orange-ui .login-input .bg,
+            .login-orange-ui .login-top .right {
+                display: none;
+            }
+
+            .login-orange-ui .login-input {
+                height: auto;
+                background-color: #fff;
+                border-top: 1px solid #eee;
+                border-bottom: 1px solid #eee;
+                padding-bottom: 20px;
+            }
+
+            .login-orange-ui .login-edit {
+                position: relative;
+                top: 0;
+                left: 0;
+                margin: 0;
+                width: auto;
+                height: auto;
+                box-shadow: none;
+            }
+
+            .login-orange-ui .login-record {
+                color: #ccc;
+            }
         }
     </style>
 </head>
 <body>
-    <!-- 顶部 Logo 栏 -->
+<div class="login-orange-ui">
     <div class="login-top">
-        <div class="top-inner">
-            <a href="/" class="brand">
-                <i class="bi bi-code-square"></i>
-                GitLab 代码审查工具
-            </a>
-            <span class="tagline">AI POWERED CODE REVIEW</span>
+        <div class="bg">
+            <div class="left"><img src="/static/images/login/login-logo-white.svg" style="height: 45px;"></div>
+            <div class="right"><img src="/static/images/login/title.svg" height="30" alt=""></div>
         </div>
     </div>
-
-    <!-- Banner 主区域 -->
-    <div class="login-banner">
-        <!-- 装饰光晕 -->
-        <div class="glow-orb glow-orb-1"></div>
-        <div class="glow-orb glow-orb-2"></div>
-
-        <!-- 左侧宣传文字 -->
-        <div class="banner-copy">
-            <div class="eyebrow">GitLab Code Review</div>
-            <h1>智能化代码审查<br><em>提升团队研发质量</em></h1>
-            <p class="desc">
-                基于 AI 大模型的代码审查平台，自动分析 Merge Request，<br>
-                识别潜在问题，生成详细审查报告，助力团队持续改进。
-            </p>
-            <div class="banner-features">
-                <div class="feat-row"><i class="bi bi-lightning-charge-fill"></i> 自动触发 Webhook，实时审查代码变更</div>
-                <div class="feat-row"><i class="bi bi-robot"></i> AI 深度分析，覆盖逻辑、安全、规范等维度</div>
-                <div class="feat-row"><i class="bi bi-bar-chart-line-fill"></i> 日 / 周 / 月报告，清晰呈现质量趋势</div>
-                <div class="feat-row"><i class="bi bi-shield-check"></i> 多项目统一管理，权限隔离安全可靠</div>
-            </div>
-        </div>
-
-        <!-- 右侧登录卡片 -->
-        <div class="login-card">
-            <div class="card-head">
-                <i class="bi bi-code-square"></i>
-                <h3>代码审查工具</h3>
-            </div>
-            <div class="card-body">
-                <!-- 错误提示 -->
+    <!-- 右侧登录卡片 -->
+    <div class="login-input">
+        <!--banner-->
+        <div class="bg"><img src="/static/images/login/banner-login2026h1.jpg" alt=""></div>
+        <!--登录区-->
+        <div class="login-edit">
+            <form method="post" id="loginForm" action="/login" novalidate="novalidate">
+                <h3>统一认证中心</h3>
                 <div class="login-err" id="loginError"></div>
-
-                <form id="loginForm">
-                    <div class="input-field">
-                        <label for="username">用户名</label>
-                        <input type="text" id="username" name="username"
-                               placeholder="请输入用户名" required autofocus autocomplete="username">
-                        <i class="bi bi-person f-icon"></i>
-                    </div>
-                    <div class="input-field">
-                        <label for="password">密码</label>
-                        <input type="password" id="password" name="password"
-                               placeholder="请输入密码" required autocomplete="current-password">
-                        <i class="bi bi-lock f-icon"></i>
-                    </div>
-                    <button type="submit" class="btn-login" id="btnLogin">
-                        <i class="bi bi-box-arrow-in-right"></i> 立即登录
-                    </button>
-                </form>
-            </div>
+                <ul>
+                    <!--错误消息-->
+                    <li>
+                        <i class="fa fa-user-circle-o"></i>
+                        <input class="unified-input" type="text" id="username" name="username" placeholder="请输入用户名" required autofocus autocomplete="username" title="">
+                    </li>
+                    <li>
+                        <i class="fa fa-key"></i>
+                        <input class="unified-input" type="password" id="password" name="password" placeholder="请输入密码" required autocomplete="current-password" title="">
+                    </li>
+                    <li>
+                        <button type="submit" class="unified-button" id="btnLogin">立即登录</button>
+                    </li>
+                </ul>
+            </form>
         </div>
-
-        <!-- 浏览器推荐提示 -->
-        <div class="browser-tip">
-            推荐使用 <b>Chrome</b>、<b>Edge</b> 或 <b>Firefox</b> 浏览器访问
-        </div>
+        <div class="right-bottom">浏览器 <b>推荐使用</b><br>谷歌(Chrome)、Microsoft(Edge)、360(极速模式)！</div>
     </div>
+    <div class="login-record">
+        上海人瑞网络科技有限公司<span style="padding: 0 10px;">版权所有©</span>沪公网安备 31010602003046号
+    </div>
+</div>
 
-    <script src="/static/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
-    <script>
+<script src="https://renruiplugins.oss-cn-beijing.aliyuncs.com/static/plugins/jquery/jquery.min.js?"></script>
+<script>
+    $(function () {
+        if($(window).height()>740){
+            $(".login-top").css("padding-top",($(window).height()-740)/2);
+        }
+    })
+</script>
+
+<script src="/static/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+<script>
     document.getElementById('loginForm').addEventListener('submit', async function(e) {
         e.preventDefault();
         const btn = document.getElementById('btnLogin');
@@ -438,6 +358,6 @@
             btn.innerHTML = '<i class="bi bi-box-arrow-in-right"></i> 立即登录';
         }
     });
-    </script>
+</script>
 </body>
 </html>

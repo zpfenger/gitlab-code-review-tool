@@ -1359,26 +1359,40 @@ code {
     padding: var(--space-2);
     z-index: 100;
     min-width: 120px;
+
+    .btn {
+        display: block;
+        width: 100%;
+        text-align: left;
+        padding: var(--space-2) var(--space-3);
+        font-size: var(--text-xs);
+        border-color: transparent !important;
+        background: transparent !important;
+        border-top: 1px solid #eee !important;
+        border-radius: 0 !important;
+
+        i.bi{
+            display: none;
+        }
+    }
+    .btn:first-child{
+        border-top: 0 solid #ddd !important;
+    }
+    .btn-primary{color: blue; !important}
+    .btn-danger{color: red; !important}
 }
 
 .operation-group:hover .operation-menu {
     display: block;
 }
 
-.operation-menu .btn {
-    display: block;
-    width: 100%;
-    text-align: left;
-    padding: var(--space-2) var(--space-3);
-    margin-bottom: var(--space-1);
-    font-size: var(--text-xs);
-}
 
 /* ============================================
    PAGINATION (分页组件)
    ============================================ */
 .pagination-wrapper {
-    display: flex;
+    /*display: flex;*/
+    overflow: hidden;
     align-items: center;
     justify-content: space-between;
     padding: var(--space-4) var(--space-6);
@@ -1391,6 +1405,8 @@ code {
 .pagination-info {
     font-size: var(--text-sm);
     color: var(--color-slate-600);
+    float: left;
+    padding: 5px 10px 0 0;
 }
 
 .pagination-info b {
@@ -1402,10 +1418,11 @@ code {
     display: flex;
     align-items: center;
     gap: var(--space-2);
+    float: left;
 }
 
 .pagination-controls .page-link {
-    padding: var(--space-2) var(--space-3);
+    padding: var(--space-1) var(--space-3);
     border: 1px solid var(--color-slate-200);
     border-radius: var(--radius-md);
     color: var(--color-slate-600);
@@ -1438,11 +1455,12 @@ code {
     gap: var(--space-2);
     font-size: var(--text-sm);
     color: var(--color-slate-600);
+    float: right;
 }
 
 .pagination-jump input {
     width: 50px;
-    padding: var(--space-2);
+    padding: var(--space-1) var(--space-2);
     border: 1px solid var(--color-slate-200);
     border-radius: var(--radius-md);
     text-align: center;
