@@ -472,12 +472,20 @@ async def recompute(
     current_user: User = Depends(get_current_user_full),
 ):
     """管理员手动补算指定日期范围的人员能效数据"""
+    logger.info(f"收到补算请求: start_date={body.start_date}, end_date={body.end_date}, force={body.force}")
+
     if not current_user.is_system_admin():
         raise HTTPException(403, "仅系统管理员可补算")
 
-    s = date.fromisoformat(body.start_date)
-    e = date.fromisoformat(body.end_date)
+    try:
+        s = date.fromisoformat(body.start_date)
+        e = date.fromisoformat(body.end_date)
+    except ValueError as ex:
+        logger.error(f"日期格式错误: {ex}")
+        raise HTTPException(400, f"日期格式错误: {ex}")
+
     if s > e:
+        logger.error(f"开始日期 {s} 晚于结束日期 {e}")
         raise HTTPException(400, "开始日期不能晚于结束日期")
 
     from app.models import Settings
@@ -487,6 +495,7 @@ async def recompute(
 
     settings = db.query(Settings).first()
     if not settings or not settings.global_gitlab_url:
+        logger.error(f"GitLab 配置缺失: settings={settings}, global_gitlab_url={settings.global_gitlab_url if settings else 'None'}")
         raise HTTPException(400, "GitLab 全局配置缺失")
 
     def _factory(proj):
@@ -770,10 +779,13 @@ async def monthly_recompute(
     current_user: User = Depends(get_current_user_full),
 ):
     """管理员手动补算指定月份的月度能效数据"""
+    logger.info(f"收到月度补算请求: year_month={body.year_month}, force={body.force}")
+
     if not current_user.is_system_admin():
         raise HTTPException(403, "仅系统管理员可补算月度数据")
 
     if not re.match(r'^\d{4}-\d{2}$', body.year_month):
+        logger.error(f"year_month 格式错误: {body.year_month}")
         raise HTTPException(400, "year_month 格式错误，应为 YYYY-MM")
 
     if not body.force:

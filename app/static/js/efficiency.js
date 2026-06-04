@@ -678,7 +678,7 @@
         btn.disabled = true;
 
         if (STATE.mode === 'monthly') {
-            apiRequest('/api/efficiency/recompute_monthly', {
+            apiRequest('/api/efficiency/monthly/recompute', {
                 method: 'POST',
                 body: JSON.stringify({ year_month: STATE.yearMonth, force: force }),
             })
