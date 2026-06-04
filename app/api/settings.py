@@ -1,5 +1,6 @@
 # app/api/settings.py
 import json
+import secrets
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -16,6 +17,19 @@ from app.api.users import require_system_admin
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 
+def _mask_api_key(encrypted_key: str | None) -> str | None:
+    """将加密的 API Key 脱敏显示，仅保留最后 4 位"""
+    if not encrypted_key:
+        return None
+    try:
+        plaintext = security_service.decrypt(encrypted_key)
+        if len(plaintext) <= 4:
+            return "****"
+        return f"****{plaintext[-4:]}"
+    except Exception:
+        return "****(解密失败)"
+
+
 @router.get("", response_model=ApiResponse[SettingsResponse])
 async def get_settings(
     db: Session = Depends(get_db),
@@ -25,7 +39,41 @@ async def get_settings(
     settings = db.query(Settings).first()
     if not settings:
         raise HTTPException(status_code=404, detail="Settings not configured")
-    return ApiResponse(success=True, data=settings)
+
+    # 脱敏显示敏感字段
+    response_data = SettingsResponse.model_validate(settings)
+    response_data.external_api_key = _mask_api_key(settings.external_api_key)
+
+    return ApiResponse(success=True, data=response_data)
+
+
+class RegenerateApiKeyResponse(BaseModel):
+    """重新生成 API Key 的响应"""
+    api_key: str
+
+
+@router.post("/regenerate-api-key", response_model=ApiResponse[RegenerateApiKeyResponse])
+async def regenerate_api_key(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_system_admin),
+):
+    """重新生成外部 API Key (仅系统管理员，返回明文仅此一次)"""
+    settings = db.query(Settings).first()
+    if not settings:
+        raise HTTPException(status_code=404, detail="Settings not configured")
+
+    # 生成新的随机 API Key
+    new_api_key = f"sk-{secrets.token_urlsafe(32)}"
+
+    # 加密并存储
+    settings.external_api_key = security_service.encrypt(new_api_key)
+    db.commit()
+
+    return ApiResponse(
+        success=True,
+        data=RegenerateApiKeyResponse(api_key=new_api_key),
+        message="API Key 已重新生成，请妥善保管，此为唯一一次显示明文"
+    )
 
 
 @router.put("", response_model=ApiResponse[SettingsResponse])
