@@ -117,6 +117,9 @@
     </button>
 </div>
 
+<!-- 补算进度条 -->
+<div id="recomputeProgress" style="display:none; max-width:480px;"></div>
+
 <!-- Stats Cards -->
 <div class="stats-grid" style="margin-bottom: var(--space-4);" id="teamStatsRow">
     <div class="stat-card primary">
@@ -264,6 +267,6 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+<script src="/static/vendor/echarts/echarts.min.js"></script>
 <script src="/static/js/efficiency.js?v=3"></script>
 {% endblock %}

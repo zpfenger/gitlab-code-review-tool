@@ -9,7 +9,7 @@
 from __future__ import annotations
 import json
 import time
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from loguru import logger
 from sqlalchemy.orm import Session
@@ -39,11 +39,21 @@ class EfficiencyMonthlyAggregator:
         llm_config: Dict[str, Any],
         top_n: int = 10,
         llm_interval: int = 2,
+        custom_prompt_template: Optional[str] = None,
     ):
+        """
+        Args:
+            db: SQLAlchemy session
+            llm_config: LLM 配置
+            top_n: 工作总结条目上限
+            llm_interval: LLM 调用间隔（秒）
+            custom_prompt_template: 自定义月度提示词模板（可选）
+        """
         self.db = db
         self.llm_config = llm_config
         self.top_n = top_n
         self.llm_interval = llm_interval
+        self.custom_prompt_template = custom_prompt_template
 
     def aggregate(self, year_month: str) -> Dict[str, Any]:
         """对指定月份做一次聚合（幂等，重复调用会 UPSERT）
@@ -165,6 +175,7 @@ class EfficiencyMonthlyAggregator:
             timeout=self.llm_config.get("timeout", 240),
             max_retries=self.llm_config.get("max_retries", 3),
             retry_delay=self.llm_config.get("retry_delay", 10),
+            custom_prompt_template=self.custom_prompt_template,
         )
 
         # UPSERT

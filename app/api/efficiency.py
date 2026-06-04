@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 from datetime import date, datetime, timedelta
 from typing import List, Optional
 
@@ -19,7 +20,7 @@ from sqlalchemy import asc, desc, func, or_
 from sqlalchemy.orm import Session
 
 from app.api.users import get_current_user_full
-from app.database import get_db
+from app.database import get_db, SessionLocal
 from app.models.commit_record import CommitRecord
 from app.models.employee_efficiency import EmployeeEfficiencyDaily
 from app.models.employee_efficiency_monthly import EmployeeEfficiencyMonthly
@@ -28,6 +29,212 @@ from app.models.user import User, project_admins, project_members
 from app.schemas.response import ApiResponse
 
 router = APIRouter(prefix="/api/efficiency", tags=["efficiency"])
+
+
+# ──────────────── 补算任务状态管理 ────────────────
+
+_recompute_lock = threading.Lock()
+
+_recompute_task = {
+    "is_running": False,
+    "task_type": None,        # "daily" | "monthly"
+    "start_date": None,
+    "end_date": None,
+    "year_month": None,
+    "total_days": 0,
+    "processed_days": 0,
+    "skipped_days": 0,
+    "failed_days": 0,
+    "current_date": None,     # 当前正在处理的日期
+    "processed": [],
+    "skipped": [],
+    "failed": [],
+    "cancelled": False,
+    "error": None,
+}
+
+
+def _reset_recompute_state():
+    """重置补算状态（调用方需持有锁）"""
+    _recompute_task.update({
+        "is_running": False,
+        "task_type": None,
+        "start_date": None,
+        "end_date": None,
+        "year_month": None,
+        "total_days": 0,
+        "processed_days": 0,
+        "skipped_days": 0,
+        "failed_days": 0,
+        "current_date": None,
+        "processed": [],
+        "skipped": [],
+        "failed": [],
+        "cancelled": False,
+        "error": None,
+    })
+
+
+def _build_llm_config(settings):
+    """从 Settings 构建 LLM 配置（复用）"""
+    from app.security import security_service
+    return {
+        "api_url": settings.llm_api_url,
+        "api_key": (
+            security_service.decrypt(settings.llm_api_key)
+            if settings.llm_api_key else ""
+        ),
+        "model": settings.llm_model,
+        "timeout": settings.llm_timeout,
+        "max_retries": settings.llm_max_retries,
+        "retry_delay": settings.llm_retry_delay,
+        "review_max_tokens": settings.review_max_tokens or 10000,
+    }
+
+
+def _run_daily_recompute(start: date, end: date, force: bool):
+    """后台线程：按天补算人员能效数据"""
+    from app.models import Settings
+    from app.security import security_service
+    from app.services.efficiency_aggregator import EfficiencyAggregator
+    from app.services.gitlab_client import GitLabClient
+
+    db = SessionLocal()
+    try:
+        settings = db.query(Settings).first()
+        if not settings or not settings.global_gitlab_url:
+            with _recompute_lock:
+                _recompute_task["is_running"] = False
+                _recompute_task["error"] = "GitLab 全局配置缺失"
+            return
+
+        def _factory(proj):
+            tk = None
+            if proj.access_token:
+                try:
+                    tk = security_service.decrypt(proj.access_token)
+                except ValueError:
+                    tk = None
+            if not tk and settings.global_gitlab_token:
+                try:
+                    tk = security_service.decrypt(settings.global_gitlab_token)
+                except ValueError:
+                    tk = None
+            if not tk:
+                raise RuntimeError(f"项目 {proj.name} 无 Token")
+            return GitLabClient(
+                gitlab_url=settings.global_gitlab_url,
+                access_token=tk,
+            )
+
+        llm_cfg = _build_llm_config(settings)
+        top_n = settings.efficiency_work_summary_top_n or 5
+
+        aggregator = EfficiencyAggregator(
+            db=db,
+            gitlab_client_factory=_factory,
+            llm_config=llm_cfg,
+            top_n=top_n,
+            custom_prompt_template=settings.efficiency_prompt_template,
+        )
+
+        current = start
+        while current <= end:
+            # 检查取消标志
+            with _recompute_lock:
+                if _recompute_task["cancelled"]:
+                    logger.info("补算任务被用户取消")
+                    _recompute_task["is_running"] = False
+                    return
+                _recompute_task["current_date"] = current.isoformat()
+
+            # 非 force 模式下，若已有记录则跳过
+            if not force:
+                existing = (
+                    db.query(EmployeeEfficiencyDaily)
+                    .filter_by(stat_date=current)
+                    .count()
+                )
+                if existing > 0:
+                    with _recompute_lock:
+                        _recompute_task["skipped"].append(current.isoformat())
+                        _recompute_task["skipped_days"] += 1
+                        _recompute_task["processed_days"] += 1
+                    current += timedelta(days=1)
+                    continue
+
+            try:
+                aggregator.aggregate(current)
+                with _recompute_lock:
+                    _recompute_task["processed"].append(current.isoformat())
+                    _recompute_task["processed_days"] += 1
+            except Exception as ex:
+                logger.exception(f"补算 {current} 失败")
+                with _recompute_lock:
+                    _recompute_task["failed"].append(
+                        {"date": current.isoformat(), "error": str(ex)}
+                    )
+                    _recompute_task["failed_days"] += 1
+                    _recompute_task["processed_days"] += 1
+
+            current += timedelta(days=1)
+
+        with _recompute_lock:
+            _recompute_task["is_running"] = False
+            _recompute_task["current_date"] = None
+        logger.info(
+            f"补算完成：处理 {len(_recompute_task['processed'])} 天，"
+            f"跳过 {len(_recompute_task['skipped'])} 天，"
+            f"失败 {len(_recompute_task['failed'])} 天"
+        )
+
+    except Exception as ex:
+        logger.exception(f"补算任务异常: {ex}")
+        with _recompute_lock:
+            _recompute_task["is_running"] = False
+            _recompute_task["error"] = str(ex)
+    finally:
+        db.close()
+
+
+def _run_monthly_recompute(year_month: str, force: bool):
+    """后台线程：补算月度能效数据"""
+    from app.models import Settings
+    from app.security import security_service
+    from app.services.efficiency_monthly_aggregator import EfficiencyMonthlyAggregator
+
+    db = SessionLocal()
+    try:
+        settings = db.query(Settings).first()
+        if not settings:
+            with _recompute_lock:
+                _recompute_task["is_running"] = False
+                _recompute_task["error"] = "系统配置缺失"
+            return
+
+        llm_cfg = _build_llm_config(settings)
+        top_n = settings.efficiency_work_summary_top_n or 5
+
+        aggregator = EfficiencyMonthlyAggregator(
+            db=db,
+            llm_config=llm_cfg,
+            top_n=top_n,
+            custom_prompt_template=settings.efficiency_monthly_prompt_template,
+        )
+        result = aggregator.aggregate(year_month)
+
+        with _recompute_lock:
+            _recompute_task["is_running"] = False
+            _recompute_task["processed"] = [result]
+        logger.info(f"月度补算完成: {result}")
+
+    except Exception as ex:
+        logger.exception(f"月度补算 {year_month} 失败")
+        with _recompute_lock:
+            _recompute_task["is_running"] = False
+            _recompute_task["error"] = str(ex)
+    finally:
+        db.close()
 
 
 # 排序字段白名单：避免任意列注入
@@ -471,103 +678,55 @@ async def recompute(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user_full),
 ):
-    """管理员手动补算指定日期范围的人员能效数据"""
+    """管理员手动补算指定日期范围的人员能效数据（异步执行）"""
+    logger.info(f"收到补算请求: start_date={body.start_date}, end_date={body.end_date}, force={body.force}")
+
     if not current_user.is_system_admin():
         raise HTTPException(403, "仅系统管理员可补算")
 
-    s = date.fromisoformat(body.start_date)
-    e = date.fromisoformat(body.end_date)
+    try:
+        s = date.fromisoformat(body.start_date)
+        e = date.fromisoformat(body.end_date)
+    except ValueError as ex:
+        logger.error(f"日期格式错误: {ex}")
+        raise HTTPException(400, f"日期格式错误: {ex}")
+
     if s > e:
+        logger.error(f"开始日期 {s} 晚于结束日期 {e}")
         raise HTTPException(400, "开始日期不能晚于结束日期")
 
-    from app.models import Settings
-    from app.security import security_service
-    from app.services.efficiency_aggregator import EfficiencyAggregator
-    from app.services.gitlab_client import GitLabClient
+    with _recompute_lock:
+        if _recompute_task["is_running"]:
+            raise HTTPException(409, "补算任务正在执行中，请稍后再试")
+        _recompute_task.update({
+            "is_running": True,
+            "task_type": "daily",
+            "start_date": body.start_date,
+            "end_date": body.end_date,
+            "year_month": None,
+            "total_days": (e - s).days + 1,
+            "processed_days": 0,
+            "skipped_days": 0,
+            "failed_days": 0,
+            "current_date": None,
+            "processed": [],
+            "skipped": [],
+            "failed": [],
+            "cancelled": False,
+            "error": None,
+        })
 
-    settings = db.query(Settings).first()
-    if not settings or not settings.global_gitlab_url:
-        raise HTTPException(400, "GitLab 全局配置缺失")
-
-    def _factory(proj):
-        tk = None
-        if proj.access_token:
-            try:
-                tk = security_service.decrypt(proj.access_token)
-            except ValueError:
-                tk = None
-        if not tk and settings.global_gitlab_token:
-            try:
-                tk = security_service.decrypt(settings.global_gitlab_token)
-            except ValueError:
-                tk = None
-        if not tk:
-            raise RuntimeError(f"项目 {proj.name} 无 Token")
-        return GitLabClient(
-            gitlab_url=settings.global_gitlab_url,
-            access_token=tk,
-        )
-
-    llm_cfg = {
-        "api_url": settings.llm_api_url,
-        "api_key": (
-            security_service.decrypt(settings.llm_api_key)
-            if settings.llm_api_key
-            else ""
-        ),
-        "model": settings.llm_model,
-        "timeout": settings.llm_timeout,
-        "max_retries": settings.llm_max_retries,
-        "retry_delay": settings.llm_retry_delay,
-    }
-    top_n = getattr(settings, "efficiency_work_summary_top_n", 5) or 5
-
-    aggregator = EfficiencyAggregator(
-        db=db,
-        gitlab_client_factory=_factory,
-        llm_config=llm_cfg,
-        top_n=top_n,
+    t = threading.Thread(
+        target=_run_daily_recompute,
+        args=(s, e, body.force),
+        daemon=True,
     )
-
-    processed = []
-    skipped = []
-    failed = []
-
-    current = s
-    while current <= e:
-        # 非 force 模式下，若已有记录则跳过
-        if not body.force:
-            existing = (
-                db.query(EmployeeEfficiencyDaily)
-                .filter_by(stat_date=current)
-                .count()
-            )
-            if existing > 0:
-                skipped.append(current.isoformat())
-                current += timedelta(days=1)
-                continue
-
-        try:
-            aggregator.aggregate(current)
-            processed.append(current.isoformat())
-        except Exception as ex:
-            logger.exception(f"补算 {current} 失败")
-            failed.append({"date": current.isoformat(), "error": str(ex)})
-
-        current += timedelta(days=1)
+    t.start()
 
     return ApiResponse(
         success=True,
-        message=(
-            f"补算完成：处理 {len(processed)} 天，"
-            f"跳过 {len(skipped)} 天，"
-            f"失败 {len(failed)} 天"
-        ),
-        data={
-            "processed": processed,
-            "skipped": skipped,
-            "failed": failed,
-        },
+        message="补算任务已启动，请在页面查看进度",
+        data={"task_type": "daily", "total_days": (e - s).days + 1},
     )
 
 
@@ -769,13 +928,17 @@ async def monthly_recompute(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user_full),
 ):
-    """管理员手动补算指定月份的月度能效数据"""
+    """管理员手动补算指定月份的月度能效数据（异步执行）"""
+    logger.info(f"收到月度补算请求: year_month={body.year_month}, force={body.force}")
+
     if not current_user.is_system_admin():
         raise HTTPException(403, "仅系统管理员可补算月度数据")
 
     if not re.match(r'^\d{4}-\d{2}$', body.year_month):
+        logger.error(f"year_month 格式错误: {body.year_month}")
         raise HTTPException(400, "year_month 格式错误，应为 YYYY-MM")
 
+    # 非 force 模式下，检查是否已有记录
     if not body.force:
         existing = (
             db.query(EmployeeEfficiencyMonthly)
@@ -789,36 +952,76 @@ async def monthly_recompute(
                 data={"skipped": True, "existing": existing},
             )
 
-    from app.models import Settings
-    from app.security import security_service
-    from app.services.efficiency_monthly_aggregator import EfficiencyMonthlyAggregator
+    with _recompute_lock:
+        if _recompute_task["is_running"]:
+            raise HTTPException(409, "补算任务正在执行中，请稍后再试")
+        _recompute_task.update({
+            "is_running": True,
+            "task_type": "monthly",
+            "start_date": None,
+            "end_date": None,
+            "year_month": body.year_month,
+            "total_days": 1,
+            "processed_days": 0,
+            "skipped_days": 0,
+            "failed_days": 0,
+            "current_date": body.year_month,
+            "processed": [],
+            "skipped": [],
+            "failed": [],
+            "cancelled": False,
+            "error": None,
+        })
 
-    settings = db.query(Settings).first()
-    if not settings:
-        raise HTTPException(400, "系统配置缺失")
+    t = threading.Thread(
+        target=_run_monthly_recompute,
+        args=(body.year_month, body.force),
+        daemon=True,
+    )
+    t.start()
 
-    llm_cfg = {
-        "api_url": settings.llm_api_url,
-        "api_key": (
-            security_service.decrypt(settings.llm_api_key)
-            if settings.llm_api_key
-            else ""
-        ),
-        "model": settings.llm_model,
-        "timeout": settings.llm_timeout,
-        "max_retries": settings.llm_max_retries,
-        "retry_delay": settings.llm_retry_delay,
-    }
-    top_n = getattr(settings, "efficiency_work_summary_top_n", 10) or 10
+    return ApiResponse(
+        success=True,
+        message="月度补算任务已启动",
+        data={"task_type": "monthly", "year_month": body.year_month},
+    )
 
-    try:
-        aggregator = EfficiencyMonthlyAggregator(
-            db=db,
-            llm_config=llm_cfg,
-            top_n=top_n,
-        )
-        result = aggregator.aggregate(body.year_month)
-        return ApiResponse(success=True, data=result)
-    except Exception as e:
-        logger.exception(f"月度补算 {body.year_month} 失败")
-        raise HTTPException(500, f"月度补算失败: {e}")
+
+# ──────────────── /recompute/status ────────────────
+
+@router.get("/recompute/status")
+async def recompute_status(
+    current_user: User = Depends(get_current_user_full),
+):
+    """查询补算任务进度"""
+    if not current_user.is_system_admin():
+        raise HTTPException(403, "仅系统管理员可查询补算状态")
+
+    with _recompute_lock:
+        status = dict(_recompute_task)
+
+    return ApiResponse(success=True, data=status)
+
+
+# ──────────────── /recompute/cancel ────────────────
+
+@router.post("/recompute/cancel")
+async def recompute_cancel(
+    current_user: User = Depends(get_current_user_full),
+):
+    """取消正在执行的补算任务"""
+    if not current_user.is_system_admin():
+        raise HTTPException(403, "仅系统管理员可取消补算")
+
+    with _recompute_lock:
+        if not _recompute_task["is_running"]:
+            return ApiResponse(
+                success=True,
+                message="当前没有正在执行的补算任务",
+            )
+        _recompute_task["cancelled"] = True
+
+    return ApiResponse(
+        success=True,
+        message="补算取消请求已发送，将在当前批次完成后停止",
+    )

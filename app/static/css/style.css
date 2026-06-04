@@ -102,10 +102,10 @@ body {
    SIDEBAR
    ============================================ */
 .sidebar {
-    width: 260px;
+    width: 175px;
     background: var(--color-slate-900);
     color: var(--color-white);
-    padding: var(--space-6);
+    padding: var(--space-6) var(--space-1);
     position: fixed;
     height: 100vh;
     overflow-y: auto;
@@ -225,8 +225,8 @@ body {
    ============================================ */
 .main-content {
     flex: 1;
-    margin-left: 260px;
-    padding: var(--space-8);
+    margin-left: 190px;
+    padding: var(--space-4);
     min-height: 100vh;
 }
 
@@ -382,7 +382,7 @@ body {
    ============================================ */
 .stats-grid {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(5, 1fr);
     gap: var(--space-6);
     margin-bottom: var(--space-8);
 }

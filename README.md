@@ -17,6 +17,7 @@
 - 审查结果回写 GitLab（MR Note / Push Note）
 - 多渠道通知（企业微信）
 - 敏感字段加密存储（Token / Webhook URL 等）
+- **人员能效分析**（日度/月度聚合、LLM 智能评分、团队概览与个人详情）
 
 ---
 
@@ -53,6 +54,8 @@ app/
     task_log.py           # 任务日志
     webhook_review.py     # Webhook 审查记录
     commit_record.py      # 提交记录
+    employee_efficiency.py        # 人员能效日度明细
+    employee_efficiency_monthly.py # 人员能效月度汇总
   schemas/                # Pydantic 数据结构
   services/               # 核心业务服务
     im/                   # 通知渠道适配（钉钉/企业微信/飞书）
@@ -67,6 +70,9 @@ app/
     report_merger.py      # 报告合并
     svn_uploader.py       # SVN 上传
     notifier.py           # 通知分发
+    efficiency_aggregator.py       # 人员能效日度聚合
+    efficiency_monthly_aggregator.py # 人员能效月度聚合
+    efficiency_llm.py              # 人员能效 LLM 评分与总结
   templates/              # Jinja2 页面模板
   static/                 # 静态资源
   config.py               # 配置管理
@@ -110,6 +116,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 5001 --reload
 | 任务日志 | `/logs` | 登录用户（按权限过滤） |
 | 报告中心 | `/reports` | 登录用户（按权限过滤） |
 | Webhook 审查 | `/webhook-reviews` | 登录用户 |
+| **人员能效** | `/efficiency` | 登录用户（按权限过滤） |
 | 账号管理 | `/users` | 系统管理员 |
 | 权限管理 | `/roles` | 系统管理员 |
 
@@ -358,6 +365,19 @@ sudo journalctl -u gitlab-code-review --since "-1 hour"      # 最近 1 小时
 
 - `GET /api/logs`（支持分页和筛选）
 
+### 人员能效
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/efficiency/list` | 人员能效列表 + 团队概览（支持日期筛选、排序、分页） |
+| GET | `/api/efficiency/detail` | 单人详情（评分趋势、工作总结、提交记录） |
+| POST | `/api/efficiency/recompute` | 手动补算日度数据（系统管理员，异步执行） |
+| GET | `/api/efficiency/recompute/status` | 查询补算任务进度 |
+| POST | `/api/efficiency/recompute/cancel` | 取消进行中的补算任务 |
+| GET | `/api/efficiency/monthly/list` | 月度能效列表（支持月份筛选、排序） |
+| GET | `/api/efficiency/monthly/detail` | 月度单人详情（月度总结、日度明细） |
+| POST | `/api/efficiency/monthly/recompute` | 月度补算（系统管理员） |
+
 ---
 
 ## 权限体系
@@ -388,6 +408,7 @@ sudo journalctl -u gitlab-code-review --since "-1 hour"      # 最近 1 小时
 - 通知渠道（钉钉 / 企业微信 / 飞书）
 - 支持文件扩展名（用于过滤变更）
 - 调度开关与执行时间（日报/周报）
+- 人员能效配置（启用开关、工作总结条目上限、日度/月度提示词模板）
 
 ### 项目配置（Project）
 
@@ -426,6 +447,56 @@ Webhook 事件映射本地项目时按以下顺序匹配：
 
 GitLab 事件 → 过滤事件/文件 → AI 审查 → 回写 GitLab → 发送通知 → 入库统计
 
+### 人员能效分析
+
+#### 功能概述
+
+人员能效模块通过聚合 GitLab 提交数据，结合 LLM 智能分析，为团队提供代码贡献度和工作质量的量化评估。
+
+#### 数据模型
+
+**日度明细（EmployeeEfficiencyDaily）**
+- 人员维度：提交者邮箱、显示名、统计日期
+- 代码量统计：提交次数、新增/删除行数、涉及文件数、新建/删除文件数
+- 项目关联：涉及项目列表（JSON 数组）
+- LLM 产出：综合评分（0-100）、等级（优秀/良好/一般/待改进）、评分简述、工作总结
+
+**月度汇总（EmployeeEfficiencyMonthly）**
+- 基于日度数据聚合：月度代码量汇总、活跃天数
+- LLM 月度总结：月度平均评分、月度工作总结
+
+#### 日度聚合流程
+
+1. 日报任务完成后自动触发（需在设置中启用）
+2. 拉取所有活跃项目的所有分支提交
+3. 跨项目按 commit SHA 去重
+4. 按作者邮箱分组，累加代码量统计
+5. 调用 LLM 生成评分和工作总结
+6. UPSERT 写入日度明细表（幂等操作）
+
+#### 月度聚合流程
+
+1. 每月 1 日定时任务自动触发（或手动补算）
+2. 读取指定月份的所有日度数据
+3. 按作者聚合求和（代码量、活跃天数）
+4. 调用 LLM 生成月度总结（串行调用，2 秒间隔避免限流）
+5. UPSERT 写入月度汇总表
+
+#### 补算机制
+
+- **日度补算**：支持按日期范围补算，异步后台线程执行
+- **月度补算**：支持按月份补算
+- **Force 模式**：可选覆盖已有记录
+- **进度监控**：实时查询补算进度（已处理/跳过/失败天数）
+- **取消操作**：支持取消正在进行的补算任务
+
+#### 页面功能
+
+- **团队概览**：代码量 Top N 排行、等级分布饼图
+- **个人详情**：评分趋势折线图、工作总结、提交记录明细
+- **数据筛选**：按日期/月份筛选、排序（评分/代码量/提交数）
+- **权限控制**：按项目权限过滤可见人员
+
 ---
 
 ## 测试
@@ -436,6 +507,9 @@ pytest
 
 # 运行关键回归测试
 pytest tests/test_services/test_webhook_worker.py tests/test_services/test_notifier.py -q
+
+# 运行人员能效相关测试
+pytest tests/test_models/test_employee_efficiency.py tests/test_models/test_employee_efficiency_monthly.py tests/test_services/test_efficiency_aggregator.py tests/test_services/test_efficiency_monthly_aggregator.py tests/test_services/test_efficiency_llm.py tests/test_api/test_efficiency.py tests/test_api/test_efficiency_monthly.py -q
 ```
 
 ---

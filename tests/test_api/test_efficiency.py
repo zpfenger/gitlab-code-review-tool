@@ -202,9 +202,10 @@ def test_detail_returns_summary_trend_commits(client, db_session,
 
 def test_recompute_requires_admin(client, db_session, login_as_member):
     """非系统管理员调用 recompute 应返回 403"""
+    today = date.today().isoformat()
     resp = client.post(
         "/api/efficiency/recompute",
-        json={"date": date.today().isoformat()},
+        json={"start_date": today, "end_date": today},
     )
     assert resp.status_code == 403
 
