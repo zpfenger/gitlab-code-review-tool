@@ -1,5 +1,6 @@
 # app/api/settings.py
 import json
+import secrets
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -16,6 +17,19 @@ from app.api.users import require_system_admin
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 
+def _mask_api_key(encrypted_key: str | None) -> str | None:
+    """将加密的 API Key 脱敏显示，仅保留最后 4 位"""
+    if not encrypted_key:
+        return None
+    try:
+        plaintext = security_service.decrypt(encrypted_key)
+        if len(plaintext) <= 4:
+            return "****"
+        return f"****{plaintext[-4:]}"
+    except Exception:
+        return "****(解密失败)"
+
+
 @router.get("", response_model=ApiResponse[SettingsResponse])
 async def get_settings(
     db: Session = Depends(get_db),
@@ -25,7 +39,41 @@ async def get_settings(
     settings = db.query(Settings).first()
     if not settings:
         raise HTTPException(status_code=404, detail="Settings not configured")
-    return ApiResponse(success=True, data=settings)
+
+    # 脱敏显示敏感字段
+    response_data = SettingsResponse.model_validate(settings)
+    response_data.external_api_key = _mask_api_key(settings.external_api_key)
+
+    return ApiResponse(success=True, data=response_data)
+
+
+class RegenerateApiKeyResponse(BaseModel):
+    """重新生成 API Key 的响应"""
+    api_key: str
+
+
+@router.post("/regenerate-api-key", response_model=ApiResponse[RegenerateApiKeyResponse])
+async def regenerate_api_key(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_system_admin),
+):
+    """重新生成外部 API Key (仅系统管理员，返回明文仅此一次)"""
+    settings = db.query(Settings).first()
+    if not settings:
+        raise HTTPException(status_code=404, detail="Settings not configured")
+
+    # 生成新的随机 API Key
+    new_api_key = f"sk-{secrets.token_urlsafe(32)}"
+
+    # 加密并存储
+    settings.external_api_key = security_service.encrypt(new_api_key)
+    db.commit()
+
+    return ApiResponse(
+        success=True,
+        data=RegenerateApiKeyResponse(api_key=new_api_key),
+        message="API Key 已重新生成，请妥善保管，此为唯一一次显示明文"
+    )
 
 
 @router.put("", response_model=ApiResponse[SettingsResponse])
@@ -39,7 +87,8 @@ async def update_settings(
 
     # 敏感字段：前端传空字符串或 null 时保留原值，有值时加密存储
     sensitive_fields = ['global_gitlab_token', 'llm_api_key', 'global_svn_password',
-                        'dingtalk_webhook_url', 'wecom_webhook_url', 'feishu_webhook_url']
+                        'dingtalk_webhook_url', 'wecom_webhook_url', 'feishu_webhook_url',
+                        'external_api_key']
     update_data = data.model_dump(exclude_unset=True)
 
     for field in sensitive_fields:
@@ -65,7 +114,10 @@ async def update_settings(
     # 保存后刷新调度器
     _refresh_scheduler(settings)
 
-    return ApiResponse(success=True, data=settings, message="设置已更新")
+    # 响应中脱敏显示 API Key
+    response_data = SettingsResponse.model_validate(settings)
+    response_data.external_api_key = _mask_api_key(settings.external_api_key)
+    return ApiResponse(success=True, data=response_data, message="设置已更新")
 
 
 def _refresh_scheduler(settings: Settings):
