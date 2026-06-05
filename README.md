@@ -78,7 +78,18 @@ app/
   config.py               # 配置管理
   security.py             # 加密/解密服务
   database.py             # 数据库初始化
+  migration.py            # 通用数据库迁移模块
   main.py                 # 应用入口
+
+scripts/
+  migrate.py              # 独立迁移脚本
+  deploy.sh               # 生产环境部署脚本
+  install.sh              # 安装脚本
+  start.sh                # 启动脚本
+  backfill_efficiency.py  # 能效数据补算脚本
+
+docs/
+  database-migration.md   # 数据库迁移文档
 
 tests/
   test_api/               # API 层测试
@@ -88,6 +99,106 @@ tests/
   test_config.py          # 配置模块测试
   test_schemas.py         # Schema 测试
 ```
+
+---
+
+## 数据库迁移
+
+本项目使用通用自动迁移模块，能够自动对比 SQLAlchemy 模型定义与实际数据库结构，并执行迁移。
+
+### 支持的变更类型
+
+| 变更类型 | 自动处理 | 说明 |
+|----------|----------|------|
+| 新增表 | ✅ | 自动创建 |
+| 新增列 | ✅ | 自动添加，支持默认值 |
+| 修改列类型/长度 | ✅ | 自动重建表（SQLite 限制） |
+| 修改 nullable 约束 | ✅ | 自动重建表 |
+| 修改默认值 | ⚠️ | 仅影响新记录 |
+| 删除列 | ❌ | SQLite 不支持，需手动 |
+
+### 应用启动时自动迁移
+
+应用启动时会自动执行迁移，无需手动操作：
+
+```bash
+# 启动应用
+python run.py
+
+# 或使用 systemd
+sudo systemctl start gitlab-code-review
+```
+
+日志中会显示迁移结果：
+```
+12:34:56 | INFO     | 开始数据库迁移检查
+12:34:56 | INFO     | 发现 2 个表有变更:
+12:34:56 | INFO     |   - settings: 新增列 external_api_key
+12:34:56 | INFO     |   - employee_efficiency_daily: 新增表
+12:34:56 | INFO     | 迁移完成 - 新建表: 1, 新增列: 1
+```
+
+### 独立迁移脚本
+
+```bash
+# 检查并执行迁移
+python scripts/migrate.py
+
+# 仅预览变更（不执行）
+python scripts/migrate.py --dry-run
+
+# 仅检查是否有变更
+python scripts/migrate.py --check
+
+# 迁移前自动备份
+python scripts/migrate.py --backup
+
+# 显示详细日志
+python scripts/migrate.py --verbose
+```
+
+### 添加新表或新字段
+
+1. **创建/修改模型文件**（如 `app/models/new_table.py`）
+2. **在 `app/models/__init__.py` 中导入**
+3. **提交代码并部署**
+4. **应用启动时自动迁移**
+
+示例：
+
+```python
+# app/models/new_feature.py
+from sqlalchemy import Column, String, Integer
+from app.models.base import BaseModel
+
+class NewFeature(BaseModel):
+    __tablename__ = "new_features"
+    name = Column(String(100), nullable=False)
+    status = Column(Integer, default=0)
+```
+
+```python
+# app/models/__init__.py 添加
+from app.models.new_feature import NewFeature
+```
+
+### 生产环境部署脚本
+
+```bash
+# 完整部署（包含迁移）
+sudo ./scripts/deploy.sh
+
+# 仅执行迁移
+sudo ./scripts/deploy.sh --migrate-only
+
+# 跳过备份
+sudo ./scripts/deploy.sh --no-backup
+
+# 强制执行（跳过确认）
+sudo ./scripts/deploy.sh --force
+```
+
+> **详细文档**：参见 `docs/database-migration.md`
 
 ---
 
