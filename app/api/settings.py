@@ -1,7 +1,7 @@
 # app/api/settings.py
 import json
 import secrets
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from app.database import get_db
@@ -50,6 +50,31 @@ async def get_settings(
 class RegenerateApiKeyResponse(BaseModel):
     """重新生成 API Key 的响应"""
     api_key: str
+
+
+class ExternalApiKeyResponse(BaseModel):
+    """外部 API Key 明文响应"""
+    api_key: str
+
+
+@router.get("/external-api-key", response_model=ApiResponse[ExternalApiKeyResponse])
+async def get_external_api_key(
+    response: Response,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_system_admin),
+):
+    """读取外部 API Key 明文，用于管理员查看和复制"""
+    settings = db.query(Settings).first()
+    if not settings or not settings.external_api_key:
+        raise HTTPException(status_code=404, detail="External API Key not configured")
+
+    try:
+        api_key = security_service.decrypt(settings.external_api_key)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="External API Key 解密失败，请重新生成")
+
+    response.headers["Cache-Control"] = "no-store"
+    return ApiResponse(success=True, data=ExternalApiKeyResponse(api_key=api_key))
 
 
 @router.post("/regenerate-api-key", response_model=ApiResponse[RegenerateApiKeyResponse])

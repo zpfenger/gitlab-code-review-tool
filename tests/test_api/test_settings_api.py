@@ -161,6 +161,18 @@ class TestGetSettingsMasking:
         assert data["data"]["external_api_key"] == "****"
 
 
+class TestRevealExternalApiKey:
+    """测试读取外部接口 API Key 明文"""
+
+    def test_reveal_external_api_key_success(self, admin_session, settings_with_api_key):
+        """管理员可以读取已配置的 API Key 明文用于查看和复制"""
+        response = admin_session.get("/api/settings/external-api-key")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert data["data"]["api_key"] == "sk-test-api-key-12345678"
+
+
 class TestRegenerateApiKey:
     """测试 POST /api/settings/regenerate-api-key"""
 

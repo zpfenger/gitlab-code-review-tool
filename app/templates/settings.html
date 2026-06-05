@@ -361,7 +361,7 @@
                 <label class="form-label">API Key</label>
                 <div style="display: flex; gap: var(--space-2); align-items: center;">
                     <input type="text" class="form-input" id="external_api_key_display"
-                           value="{{ settings.external_api_key or '未配置' }}"
+                           value="{% if settings.external_api_key %}..........{% else %}未配置{% endif %}"
                            readonly style="max-width: 300px; font-family: monospace;">
                     <button type="button" class="btn btn-secondary" onclick="toggleApiKeyVisibility()">
                         <i class="bi bi-eye" id="toggleIcon"></i>
@@ -375,7 +375,7 @@
                 </div>
                 <small class="text-muted" id="apiKeyHint">
                     {% if settings.external_api_key %}
-                        已配置（脱敏显示）。点击"重新生成"可创建新密钥。
+                        已配置（默认脱敏显示）。点击"查看"或"复制"可使用原始密钥。
                     {% else %}
                         未配置。点击"重新生成"创建访问密钥。
                     {% endif %}
@@ -551,7 +551,40 @@ function showTestResult(type, message) {
 }
 
 // API Key management
-let currentApiKey = null; // Stores plaintext key after regeneration
+const MASKED_API_KEY = '..........';
+let currentApiKey = null;
+let apiKeyConfigured = {{ 'true' if settings.external_api_key else 'false' }};
+let apiKeyVisible = false;
+
+function setApiKeyDisplay(value, visible) {
+    const display = document.getElementById('external_api_key_display');
+    const icon = document.getElementById('toggleIcon');
+    display.type = 'text';
+    display.value = value;
+    apiKeyVisible = visible;
+    icon.className = visible ? 'bi bi-eye-slash' : 'bi bi-eye';
+}
+
+async function fetchExternalApiKey() {
+    if (!apiKeyConfigured) {
+        showNotification('未配置 API Key', 'warning');
+        return null;
+    }
+    if (currentApiKey) {
+        return currentApiKey;
+    }
+
+    const response = await fetch('/api/settings/external-api-key', {
+        method: 'GET',
+        cache: 'no-store'
+    });
+    const result = await response.json();
+    if (response.ok && result.success && result.data && result.data.api_key) {
+        currentApiKey = result.data.api_key;
+        return currentApiKey;
+    }
+    throw new Error(result.detail || result.message || '无法读取 API Key');
+}
 
 async function regenerateApiKey() {
     if (!confirm('重新生成 API Key 将使旧密钥立即失效，HR 系统需要更新配置。确定继续吗？')) {
@@ -566,11 +599,11 @@ async function regenerateApiKey() {
         const result = await response.json();
         if (result.success) {
             currentApiKey = result.data.api_key;
-            document.getElementById('external_api_key_display').value = currentApiKey;
-            document.getElementById('external_api_key_display').type = 'text';
+            apiKeyConfigured = true;
+            setApiKeyDisplay(currentApiKey, true);
             document.getElementById('apiKeyHint').innerHTML =
-                '<strong style="color: var(--color-warning);">请立即复制保存此密钥，关闭后将无法再次查看明文。</strong>';
-            showNotification('API Key 已重新生成，请立即复制保存', 'warning');
+                '<strong style="color: var(--color-warning);">API Key 已重新生成。页面刷新后默认脱敏显示，点击查看或复制可再次使用原始密钥。</strong>';
+            showNotification('API Key 已重新生成', 'success');
         } else {
             showNotification('生成失败: ' + (result.message || '未知错误'), 'error');
         }
@@ -579,33 +612,55 @@ async function regenerateApiKey() {
     }
 }
 
-function toggleApiKeyVisibility() {
-    const display = document.getElementById('external_api_key_display');
-    const icon = document.getElementById('toggleIcon');
-    if (display.type === 'password') {
-        display.type = 'text';
-        icon.className = 'bi bi-eye-slash';
-    } else {
-        display.type = 'password';
-        icon.className = 'bi bi-eye';
+async function toggleApiKeyVisibility() {
+    if (!apiKeyConfigured) {
+        showNotification('未配置 API Key', 'warning');
+        return;
+    }
+    if (apiKeyVisible) {
+        setApiKeyDisplay(MASKED_API_KEY, false);
+        return;
+    }
+
+    try {
+        const apiKey = await fetchExternalApiKey();
+        if (apiKey) {
+            setApiKeyDisplay(apiKey, true);
+        }
+    } catch (e) {
+        showNotification('读取 API Key 失败: ' + e.message, 'error');
     }
 }
 
 async function copyApiKey() {
-    const value = document.getElementById('external_api_key_display').value;
-    if (value === '未配置') {
+    if (!apiKeyConfigured) {
         showNotification('未配置 API Key', 'warning');
         return;
     }
     try {
-        await navigator.clipboard.writeText(value);
-        showNotification('已复制到剪贴板', 'success');
+        const apiKey = await fetchExternalApiKey();
+        if (!apiKey) {
+            return;
+        }
+        setApiKeyDisplay(apiKey, true);
+        await navigator.clipboard.writeText(apiKey);
+        showNotification('已复制原始 API Key 到剪贴板', 'success');
     } catch (e) {
+        const apiKey = currentApiKey;
+        if (!apiKey) {
+            showNotification('复制失败: ' + e.message, 'error');
+            return;
+        }
         // Fallback for older browsers
-        const input = document.getElementById('external_api_key_display');
-        input.select();
+        const textarea = document.createElement('textarea');
+        textarea.value = apiKey;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
         document.execCommand('copy');
-        showNotification('已复制到剪贴板', 'success');
+        document.body.removeChild(textarea);
+        showNotification('已复制原始 API Key 到剪贴板', 'success');
     }
 }
 </script>
