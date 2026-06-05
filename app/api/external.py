@@ -216,11 +216,21 @@ def get_efficiency_daily(
         overall_status = next(iter(statuses))
 
     # 构造响应
+    items = []
+    if overall_status == "success":
+        # 按代码变更量（新增+删除）降序排列计算排名
+        total = len(rows)
+        sorted_rows = sorted(rows, key=lambda r: r.additions + r.deletions, reverse=True)
+        rank_map = {}
+        for rank, row in enumerate(sorted_rows, 1):
+            rank_map[row.author_email] = f"{rank}/{total}"
+        items = [_serialize(r) | {"code_commit_rank": rank_map.get(r.author_email, "")} for r in rows]
+
     result = {
         "date": target_date.isoformat(),
         "generated_at": max(r.updated_at for r in rows).isoformat(),
         "llm_status": overall_status,
-        "items": [_serialize(r) for r in rows] if overall_status == "success" else [],
+        "items": items,
     }
 
     # 非 success 时附加提示
