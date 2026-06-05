@@ -1,6 +1,7 @@
 # app/api/settings.py
 import json
 import secrets
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -17,7 +18,7 @@ from app.api.users import require_system_admin
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 
-def _mask_api_key(encrypted_key: str | None) -> str | None:
+def _mask_api_key(encrypted_key: Optional[str]) -> Optional[str]:
     """将加密的 API Key 脱敏显示，仅保留最后 4 位"""
     if not encrypted_key:
         return None

@@ -1,7 +1,7 @@
 # app/api/reports.py
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
-from typing import Optional, List
+from typing import Optional, List, Tuple
 from datetime import date
 from pathlib import Path
 import re
@@ -117,7 +117,7 @@ async def list_reports(
     return ApiResponse(success=True, data=reports)
 
 
-def _parse_report_path(path: str) -> tuple[str, str, str, str]:
+def _parse_report_path(path: str) -> Tuple[str, str, str, str]:
     """Parse a report path into (project, report_type, report_date, author) components.
 
     Expected format: {project}/{type}/{date}/{author}.md

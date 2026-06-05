@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from typing import Optional, List
 from enum import Enum
 from typing import Any, Optional
 
@@ -85,19 +86,19 @@ class TableDiff:
     table_name: str
     exists_in_db: bool
     exists_in_model: bool
-    column_diffs: list[ColumnDiff]
-    index_diffs: list[str]
-    constraint_diffs: list[str]
+    column_diffs: List[ColumnDiff]
+    index_diffs: List[str]
+    constraint_diffs: List[str]
     needs_rebuild: bool = False  # 是否需要重建表
 
 
 @dataclass
 class MigrationPlan:
     """迁移计划"""
-    tables_to_create: list[str]
-    tables_to_rebuild: list[str]
-    columns_to_add: list[ColumnDiff]
-    other_changes: list[str]
+    tables_to_create: List[str]
+    tables_to_rebuild: List[str]
+    columns_to_add: List[ColumnDiff]
+    other_changes: List[str]
     summary: str = ""
 
 
@@ -215,7 +216,7 @@ def _compare_columns(
     return None
 
 
-def analyze_diff(engine: Engine, metadata: MetaData) -> list[TableDiff]:
+def analyze_diff(engine: Engine, metadata: MetaData) -> List[TableDiff]:
     """分析模型与数据库的差异"""
     insp = inspect(engine)
     db_tables = set(insp.get_table_names())
@@ -521,7 +522,7 @@ def _rebuild_table_with_cascade(
     table_name: str,
     fk_column: str,
     ref_table: str,
-    metadata: MetaData | None = None,
+    metadata: Optional[MetaData] = None,
 ):
     """重建表以添加 ON DELETE CASCADE"""
     logger.info(f"为 {table_name}.{fk_column} 添加 CASCADE")

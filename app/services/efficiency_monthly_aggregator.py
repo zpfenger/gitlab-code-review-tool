@@ -238,7 +238,7 @@ def _next_month(year_month: str) -> str:
     return f"{year}-{month + 1:02d}-01"
 
 
-def _map_score_to_grade(score: int | None) -> str | None:
+def _map_score_to_grade(score: Optional[int]) -> Optional[str]:
     """分数映射到等级"""
     if score is None:
         return None
