@@ -395,7 +395,7 @@ sudo journalctl -u gitlab-code-review --since "-1 hour"      # 最近 1 小时
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `date` | string | 否 | 查询日期，格式 `YYYY-MM-DD`，默认前一天 |
+| `date` | string | 否 | 查询日期，格式 `YYYY-MM-DD` 或 `YYYY/MM/DD`，默认前一天 |
 | `email` | string | 否 | 按邮箱筛选，多个用英文逗号分隔；不传则返回所有人员 |
 
 **请求示例：**
@@ -404,6 +404,10 @@ sudo journalctl -u gitlab-code-review --since "-1 hour"      # 最近 1 小时
 # 查询所有人员
 curl -H "X-API-Key: YOUR_KEY" \
   "http://localhost:5001/api/external/efficiency/daily?date=2026-06-03"
+
+# 查询所有人员（斜杠日期格式）
+curl -H "X-API-Key: YOUR_KEY" \
+  "http://localhost:5001/api/external/efficiency/daily?date=2026/06/03"
 
 # 查询指定人员（单个邮箱）
 curl -H "X-API-Key: YOUR_KEY" \

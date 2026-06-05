@@ -28,6 +28,23 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/external", tags=["external"])
 
 
+def _parse_date_param(value: str, param_name: str) -> date:
+    """解析外部 API 日期参数，兼容 YYYY-MM-DD 和 YYYY/MM/DD。"""
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        if "/" in value and "-" not in value:
+            try:
+                return date.fromisoformat(value.replace("/", "-"))
+            except ValueError:
+                pass
+
+    raise HTTPException(
+        status_code=400,
+        detail=f"{param_name} 格式错误，需 YYYY-MM-DD 或 YYYY/MM/DD",
+    )
+
+
 # ──────────────── 认证依赖项 ────────────────
 
 
@@ -98,18 +115,12 @@ def get_efficiency_list(
 
     # 日期范围筛选
     if start_date:
-        try:
-            sd = date.fromisoformat(start_date)
-            query = query.filter(EmployeeEfficiencyDaily.stat_date >= sd)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="start_date 格式错误，需 YYYY-MM-DD")
+        sd = _parse_date_param(start_date, "start_date")
+        query = query.filter(EmployeeEfficiencyDaily.stat_date >= sd)
 
     if end_date:
-        try:
-            ed = date.fromisoformat(end_date)
-            query = query.filter(EmployeeEfficiencyDaily.stat_date <= ed)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="end_date 格式错误，需 YYYY-MM-DD")
+        ed = _parse_date_param(end_date, "end_date")
+        query = query.filter(EmployeeEfficiencyDaily.stat_date <= ed)
 
     # 默认返回最近 30 天
     if not start_date and not end_date:
@@ -143,7 +154,9 @@ def get_efficiency_daily(
     db: Session = Depends(get_db),
     _api_key: str = Depends(verify_api_key),
     date_str: Optional[str] = Query(
-        None, alias="date", description="查询日期 YYYY-MM-DD，默认为前一天"
+        None,
+        alias="date",
+        description="查询日期 YYYY-MM-DD 或 YYYY/MM/DD，默认为前一天",
     ),
     email: Optional[str] = Query(
         None,
@@ -159,12 +172,7 @@ def get_efficiency_daily(
     """
     # 解析日期参数，默认前一天
     if date_str:
-        try:
-            target_date = date.fromisoformat(date_str)
-        except ValueError:
-            raise HTTPException(
-                status_code=400, detail="date 格式错误，需 YYYY-MM-DD"
-            )
+        target_date = _parse_date_param(date_str, "date")
     else:
         target_date = date.today() - timedelta(days=1)
 

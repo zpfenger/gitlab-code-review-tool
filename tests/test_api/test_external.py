@@ -437,6 +437,27 @@ class TestGetEfficiencyDaily:
         assert data["items"][0]["author_email"] in ("a@example.com", "b@example.com")
 
     @patch('app.api.external.security_service')
+    def test_slash_date_format(self, mock_security, client, db_session):
+        """支持 yyyy/MM/dd 日期格式"""
+        _setup_api_key(db_session, mock_security)
+        target_date = date(2026, 6, 3)
+
+        db_session.add(_make_row(
+            stat_date=target_date, llm_status="success",
+        ))
+        db_session.commit()
+
+        response = client.get(
+            "/api/external/efficiency/daily",
+            headers=API_HEADERS,
+            params={"date": "2026/06/03"},
+        )
+        assert response.status_code == 200
+        data = response.json()["data"]
+        assert data["date"] == target_date.isoformat()
+        assert len(data["items"]) == 1
+
+    @patch('app.api.external.security_service')
     def test_no_data_returns_pending(self, mock_security, client, db_session):
         """指定日期无记录时返回 pending 状态和空列表"""
         _setup_api_key(db_session, mock_security)
