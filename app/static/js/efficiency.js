@@ -920,10 +920,14 @@
         STATE.endDate = yesterday();
         STATE.yearMonth = currentMonth();
 
+        if(STATE.startDate > STATE.endDate){
+            //当开始日期大于结束日期时，将开始日期设置为结束日期
+            STATE.startDate = STATE.endDate;
+        }
+
         document.getElementById('startDate').value = STATE.startDate;
         document.getElementById('endDate').value = STATE.endDate;
         document.getElementById('filterMonth').value = STATE.yearMonth;
-
 
         // 日期变化
         document.getElementById('startDate').addEventListener('change', function (e) {
