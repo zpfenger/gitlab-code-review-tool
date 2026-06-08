@@ -37,7 +37,6 @@ class TestProject:
             name="可选字段测试",
             gitlab_url="https://gitlab.example.com",
             project_id=789,
-            access_token="encrypted_token",
             svn_url="https://svn.example.com/repo",
             svn_username="user",
             svn_password="encrypted_pass"
@@ -45,5 +44,4 @@ class TestProject:
         db_session.add(project)
         db_session.commit()
 
-        assert project.access_token == "encrypted_token"
         assert project.svn_url == "https://svn.example.com/repo"

@@ -14,7 +14,7 @@ from app.api.users import get_current_user_full, require_system_admin, require_p
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
 # 项目级需要加密存储的敏感字段
-_PROJECT_SENSITIVE_FIELDS = ['access_token', 'svn_password', 'wecom_webhook_url']
+_PROJECT_SENSITIVE_FIELDS = ['svn_password', 'wecom_webhook_url']
 
 
 def _encrypt_project_sensitive(data: dict) -> None:
@@ -259,21 +259,16 @@ async def test_project_connection(
     from app.models.settings import Settings
     settings = db.query(Settings).first()
 
-    # 解密 Token：优先项目级，否则全局
+    # 使用全局 Token
     token = None
-    if project.access_token:
-        try:
-            token = security_service.decrypt(project.access_token)
-        except ValueError:
-            pass
-    if not token and settings and settings.global_gitlab_token:
+    if settings and settings.global_gitlab_token:
         try:
             token = security_service.decrypt(settings.global_gitlab_token)
         except ValueError:
             pass
 
     if not token:
-        return ApiResponse(success=False, message="未配置 GitLab Token")
+        return ApiResponse(success=False, message="全局 GitLab Token 未配置，请在系统设置中配置")
 
     gitlab_url = project.gitlab_url or (settings.global_gitlab_url if settings else None)
     if not gitlab_url:

@@ -233,18 +233,17 @@
                 </div>
             </div>
 
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4);">
-                <div class="form-group">
-                    <label for="access_token" class="form-label">GitLab Token（可选）</label>
-                    <input type="password" class="form-input" id="access_token" name="access_token"
-                           placeholder="留空使用全局配置">
+            <div class="form-group">
+                <label class="form-label">状态</label>
+                <div style="display: flex; align-items: center; gap: var(--space-3); padding-top: var(--space-2);">
+                    <input type="checkbox" id="is_active" name="is_active" checked style="width: 18px; height: 18px; accent-color: var(--color-primary);">
+                    <label for="is_active" style="margin: 0; font-weight: 500;">启用此项目</label>
                 </div>
-                <div class="form-group">
-                    <label class="form-label">状态</label>
-                    <div style="display: flex; align-items: center; gap: var(--space-3); padding-top: var(--space-2);">
-                        <input type="checkbox" id="is_active" name="is_active" checked style="width: 18px; height: 18px; accent-color: var(--color-primary);">
-                        <label for="is_active" style="margin: 0; font-weight: 500;">启用此项目</label>
-                    </div>
+            </div>
+
+            <div class="form-group">
+                <div class="alert alert-info" style="margin: 0; font-size: var(--text-sm);">
+                    <i class="bi bi-info-circle"></i> GitLab Token 使用全局配置，请在 <a href="/settings">系统设置</a> 中配置全局 Access Token
                 </div>
             </div>
 
@@ -380,7 +379,6 @@ document.getElementById('projectForm').addEventListener('submit', async function
         description: formData.get('description'),
         target_branches: formData.get('target_branches'),
         exclude_branches: formData.get('exclude_branches'),
-        access_token: formData.get('access_token') || null,
         svn_url: formData.get('svn_url') || null,
         svn_username: formData.get('svn_username') || null,
         svn_password: formData.get('svn_password') || null,

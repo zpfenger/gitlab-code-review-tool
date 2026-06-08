@@ -85,10 +85,9 @@ class TestProjectSchemas:
             "name": "Test Project",
             "gitlab_url": "https://gitlab.example.com",
             "project_id": 123,
-            "access_token": "token123",
         }
         project = ProjectCreate(**data)
-        assert project.access_token == "token123"
+        assert project.name == "Test Project"
 
     def test_project_update(self):
         """Test ProjectUpdate allows partial updates"""

@@ -243,22 +243,17 @@ async def _run_review_task(
             db.refresh(task_log)
 
             try:
-                # 解密 Token：优先项目级 token，否则全局 token
+                # 使用全局 Token
                 token = None
-                if project.access_token:
-                    try:
-                        token = security_service.decrypt(project.access_token)
-                    except ValueError:
-                        logger.warning(f"项目 {project.name} Token 解密失败，尝试全局 Token")
-                if not token and settings.global_gitlab_token:
+                if settings.global_gitlab_token:
                     try:
                         token = security_service.decrypt(settings.global_gitlab_token)
                     except ValueError:
-                        logger.warning(f"全局 Token 解密失败")
+                        logger.warning(f"全局 GitLab Token 解密失败")
                 if not token:
-                    logger.warning(f"项目 {project.name} 无可用 Token，跳过")
+                    logger.warning(f"全局 GitLab Token 未配置，跳过项目 {project.name}")
                     task_log.status = "failed"
-                    task_log.error_message = "无可用 Token"
+                    task_log.error_message = "全局 GitLab Token 未配置"
                     task_log.end_time = datetime.now()
                     db.commit()
                     continue

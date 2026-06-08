@@ -332,7 +332,6 @@ async def projects_page(request: Request):
                 'description': p.description or '',
                 'target_branches': p.target_branches or '',
                 'exclude_branches': p.exclude_branches or '',
-                'access_token': p.access_token or '',
                 'svn_url': p.svn_url or '',
                 'svn_username': p.svn_username or '',
                 'svn_password': p.svn_password or '',
@@ -732,22 +731,17 @@ def run_scheduled_task(task_type: str = 'daily'):
             db.refresh(task_log)
 
             try:
-                # 解密 token：优先使用项目级 token，解密失败则降级使用全局 token
+                # 使用全局 Token
                 token = None
-                if project.access_token:
-                    try:
-                        token = security_service.decrypt(project.access_token)
-                    except ValueError:
-                        logger.warning(f"项目 {project.name} Token 解密失败，尝试使用全局 Token")
-                if not token and settings.global_gitlab_token:
+                if settings.global_gitlab_token:
                     try:
                         token = security_service.decrypt(settings.global_gitlab_token)
                     except ValueError:
-                        logger.warning(f"项目 {project.name} 全局 Token 解密失败")
+                        logger.warning(f"全局 GitLab Token 解密失败")
                 if not token:
-                    logger.warning(f"项目 {project.name} 无可用 Token，跳过")
+                    logger.warning(f"全局 GitLab Token 未配置，跳过项目 {project.name}")
                     task_log.status = "failed"
-                    task_log.error_message = "无可用 Token"
+                    task_log.error_message = "全局 GitLab Token 未配置"
                     task_log.end_time = datetime.now()
                     db.commit()
                     continue
@@ -884,20 +878,15 @@ def run_scheduled_task(task_type: str = 'daily'):
                 target_efficiency_date = _date.today() - _td(days=1)
 
                 def _client_factory(proj):
-                    """根据项目解 token，构造 GitLabClient"""
+                    """使用全局 Token 构造 GitLabClient"""
                     tk = None
-                    if proj.access_token:
-                        try:
-                            tk = security_service.decrypt(proj.access_token)
-                        except ValueError:
-                            tk = None
-                    if not tk and settings.global_gitlab_token:
+                    if settings.global_gitlab_token:
                         try:
                             tk = security_service.decrypt(settings.global_gitlab_token)
                         except ValueError:
                             tk = None
                     if not tk:
-                        raise RuntimeError(f"项目 {proj.name} 无可用 Token")
+                        raise RuntimeError("全局 GitLab Token 未配置")
                     return _GLC(gitlab_url=settings.global_gitlab_url,
                                  access_token=tk)
 

@@ -10,7 +10,6 @@ class ProjectBase(BaseModel):
     project_id: int = Field(..., gt=0)
     description: Optional[str] = None
     target_branches: Optional[str] = None
-    access_token: Optional[str] = Field(None, max_length=500)
     exclude_branches: Optional[str] = None
     svn_url: Optional[str] = Field(None, max_length=500)
     svn_username: Optional[str] = Field(None, max_length=100)
@@ -30,7 +29,6 @@ class ProjectUpdate(BaseModel):
     project_id: Optional[int] = Field(None, gt=0)
     description: Optional[str] = None
     target_branches: Optional[str] = None
-    access_token: Optional[str] = None
     exclude_branches: Optional[str] = None
     svn_url: Optional[str] = None
     svn_username: Optional[str] = None

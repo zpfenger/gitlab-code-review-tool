@@ -56,20 +56,15 @@ def main():
             return
 
         def _factory(proj):
-            """根据项目构造 GitLabClient"""
+            """使用全局 Token 构造 GitLabClient"""
             tk = None
-            if proj.access_token:
-                try:
-                    tk = security_service.decrypt(proj.access_token)
-                except ValueError:
-                    pass
-            if not tk and settings.global_gitlab_token:
+            if settings.global_gitlab_token:
                 try:
                     tk = security_service.decrypt(settings.global_gitlab_token)
                 except ValueError:
                     pass
             if not tk:
-                raise RuntimeError(f"无 Token: {proj.name}")
+                raise RuntimeError("全局 GitLab Token 未配置")
             return GitLabClient(gitlab_url=settings.global_gitlab_url,
                                 access_token=tk)
 

@@ -77,7 +77,7 @@ async def handle_webhook(request: Request):
             db.close()
 
     if not gitlab_token:
-        return JSONResponse({"error": "Missing GitLab access token"}, status_code=400)
+        return JSONResponse({"error": "全局 GitLab Token 未配置"}, status_code=400)
 
     # 判断事件类型
     object_kind = data.get("object_kind")

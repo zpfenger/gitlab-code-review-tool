@@ -13,9 +13,6 @@ class Project(BaseModel):
     description = Column(Text, nullable=True, comment="项目描述")
     target_branches = Column(Text, nullable=True, comment="目标分支列表 (逗号分隔)")
 
-    # GitLab 配置(可选,为空则使用全局配置)
-    access_token = Column(String(500), nullable=True, comment="访问 Token (加密存储)")
-
     exclude_branches = Column(Text, nullable=True, default='', comment="排除分支列表 (逗号分隔)")
 
     # SVN 配置(可选,为空则使用全局配置)

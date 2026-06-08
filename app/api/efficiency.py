@@ -109,19 +109,15 @@ def _run_daily_recompute(start: date, end: date, force: bool):
             return
 
         def _factory(proj):
+            """使用全局 Token 构造 GitLabClient"""
             tk = None
-            if proj.access_token:
-                try:
-                    tk = security_service.decrypt(proj.access_token)
-                except ValueError:
-                    tk = None
-            if not tk and settings.global_gitlab_token:
+            if settings.global_gitlab_token:
                 try:
                     tk = security_service.decrypt(settings.global_gitlab_token)
                 except ValueError:
                     tk = None
             if not tk:
-                raise RuntimeError(f"项目 {proj.name} 无 Token")
+                raise RuntimeError("全局 GitLab Token 未配置")
             return GitLabClient(
                 gitlab_url=settings.global_gitlab_url,
                 access_token=tk,
