@@ -18,16 +18,6 @@
         <div class="panel-title">
             <i class="bi bi-folder"></i> 项目列表
         </div>
-        <div class="btn-group">
-            <button class="btn btn-secondary" onclick="location.reload()">
-                <i class="bi bi-arrow-clockwise"></i> 刷新
-            </button>
-            {% if 'system_admin' in current_user_roles or 'project_admin' in current_user_roles %}
-            <button class="btn btn-primary" onclick="openCreateModal()">
-                <i class="bi bi-plus-lg"></i> 新增项目
-            </button>
-            {% endif %}
-        </div>
     </div>
 
     <!-- Panel Body -->
@@ -67,6 +57,16 @@
                     <i class="bi bi-plus-circle"></i> 新增
                 </button>
                 {% endif %}
+				
+				{% if 'system_admin' in current_user_roles %}
+				<button class="btn btn-warning" id="syncGitlabProjectsBtn" style="color:#fff;" onclick="syncGitlabProjects()">
+					<i class="bi bi-cloud-download"></i> 同步 GitLab 项目
+				</button>
+				{% endif %}
+				
+				<button class="btn btn-secondary" onclick="location.reload()">
+					<i class="bi bi-arrow-clockwise"></i> 刷新
+				</button>
             </div>
             <div class="toolbar-right">
                 <div class="page-size-selector">
@@ -95,11 +95,11 @@
                         <th>配置</th>
                     </tr>
                 </thead>
-                <tbody>
+                <tbody id="projectsTableBody">
                     {% for project in projects %}
-                    <tr data-name="{{ project.name }}" data-status="{% if project.is_active %}active{% else %}inactive{% endif %}">
+                    <tr class="project-row" data-name="{{ project.name }}" data-status="{% if project.is_active %}active{% else %}inactive{% endif %}">
                         <td><input type="checkbox" class="row-checkbox" value="{{ project.id }}"></td>
-                        <td>{{ loop.index }}</td>
+                        <td class="row-index">{{ loop.index }}</td>
                         <td>
                             <div class="operation-group">
                                 <i class="bi bi-gear operation-trigger"></i>
@@ -154,32 +154,26 @@
                         </td>
                     </tr>
                     {% endfor %}
-                </tbody>
-                <tfoot>
-                    <tr class="total-row">
-                        <td class="total-cell" colspan="8" style="text-align: left;">
-                            共 <b>{{ projects|length }}</b> 个项目
+                    <tr id="projectsEmptyRow" style="display: none;">
+                        <td colspan="8" style="text-align: center; color: var(--color-slate-500); padding: var(--space-6);">
+                            暂无匹配项目
                         </td>
                     </tr>
-                </tfoot>
+                </tbody>
             </table>
         </div>
 
         <!-- Pagination -->
         <div class="pagination-wrapper">
-            <div class="pagination-info">
+            <div class="pagination-info" id="paginationInfo">
                 共 <b>{{ projects|length }}</b> 条记录
             </div>
-            <div class="pagination-controls">
-                <span class="page-link disabled">第一页</span>
-                <span class="page-link disabled">上一页</span>
-                <span class="page-link active">1</span>
-                <span class="page-link">下一页</span>
-                <span class="page-link">最末页</span>
+            <div class="pagination-controls" id="paginationControls">
             </div>
             <div class="pagination-jump">
                 <label>跳转到</label>
-                <input type="number" value="1" min="1">
+                <input type="number" id="pageJumpInput" value="1" min="1"
+                       onkeydown="if(event.key==='Enter')goProjectsPage(this.value)">
                 <label>页</label>
             </div>
         </div>
@@ -311,31 +305,181 @@
 {% block extra_js %}
 <script>
 const projects = {{ projects | tojson | safe }};
+let currentProjectsPage = 1;
+let filteredProjectRows = [];
+let visibleProjectRows = [];
+const projectRows = Array.from(document.querySelectorAll('#projectsTableBody .project-row'));
 
-function filterProjects() {
+async function syncGitlabProjects() {
+    if (!confirm('将使用全局 Access Token 拉取可访问的所有 GitLab 项目，并自动创建本地缺失项目。是否继续？')) return;
+
+    const btn = document.getElementById('syncGitlabProjectsBtn');
+    const origHTML = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 同步中';
+
+    try {
+        const response = await fetch('/api/projects/sync-gitlab', { method: 'POST' });
+        const result = await response.json();
+        if (result.success) {
+            const data = result.data || {};
+            showNotification(
+                `GitLab 项目同步完成：新增 ${data.created || 0} 个，跳过 ${data.skipped || 0} 个，失败 ${data.failed || 0} 个`,
+                'success'
+            );
+            setTimeout(() => location.reload(), 800);
+        } else {
+            showNotification(result.message || 'GitLab 项目同步失败', 'error');
+        }
+    } catch (e) {
+        showNotification('请求失败: ' + e.message, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = origHTML;
+    }
+}
+
+function getProjectsPageSize() {
+    const pageSizeSelect = document.getElementById('pageSize');
+    const size = parseInt(pageSizeSelect?.value || '10', 10);
+    return Number.isFinite(size) && size > 0 ? size : 10;
+}
+
+function getProjectsTotalPages() {
+    return Math.max(1, Math.ceil(filteredProjectRows.length / getProjectsPageSize()));
+}
+
+function updateProjectCounts(total, totalPages) {
+    const countSummary = document.getElementById('projectCountSummary');
+    const footerCount = document.getElementById('projectsFooterCount');
+    const paginationInfo = document.getElementById('paginationInfo');
+    const jumpInput = document.getElementById('pageJumpInput');
+    const totalAll = projectRows.length;
+
+    if (countSummary) {
+        countSummary.innerHTML = total === totalAll
+            ? `共 <b>${total}</b> 条记录`
+            : `共 <b>${total}</b> 条匹配记录（全部 ${totalAll} 条）`;
+    }
+    if (footerCount) {
+        footerCount.textContent = total;
+    }
+    if (paginationInfo) {
+        paginationInfo.innerHTML = total === totalAll
+            ? `共 <b>${total}</b> 条记录，第 ${currentProjectsPage}/${totalPages} 页`
+            : `共 <b>${total}</b> 条匹配记录（全部 ${totalAll} 条），第 ${currentProjectsPage}/${totalPages} 页`;
+    }
+    if (jumpInput) {
+        jumpInput.value = currentProjectsPage;
+        jumpInput.max = totalPages;
+    }
+}
+
+function renderProjectsPagination(totalPages) {
+    const controls = document.getElementById('paginationControls');
+    if (!controls) return;
+
+    const link = (label, page, disabled = false, active = false) => {
+        if (disabled) return `<span class="page-link disabled">${label}</span>`;
+        if (active) return `<span class="page-link active">${label}</span>`;
+        return `<span class="page-link" onclick="goProjectsPage(${page})">${label}</span>`;
+    };
+
+    let html = '';
+    html += link('第一页', 1, currentProjectsPage <= 1);
+    html += link('上一页', currentProjectsPage - 1, currentProjectsPage <= 1);
+
+    for (let page = 1; page <= totalPages; page++) {
+        const nearCurrent = page >= currentProjectsPage - 1 && page <= currentProjectsPage + 1;
+        const nearEdge = page <= 2 || page > totalPages - 2;
+        if (nearCurrent || nearEdge) {
+            html += link(page, page, false, page === currentProjectsPage);
+        } else if (page === 3 || page === totalPages - 2) {
+            html += '<span class="page-link disabled">...</span>';
+        }
+    }
+
+    html += link('下一页', currentProjectsPage + 1, currentProjectsPage >= totalPages);
+    html += link('最末页', totalPages, currentProjectsPage >= totalPages);
+    controls.innerHTML = html;
+}
+
+function renderProjectsPage() {
+    const total = filteredProjectRows.length;
+    const totalPages = getProjectsTotalPages();
+    currentProjectsPage = Math.min(Math.max(currentProjectsPage, 1), totalPages);
+
+    const pageSize = getProjectsPageSize();
+    const start = (currentProjectsPage - 1) * pageSize;
+    const end = start + pageSize;
+    visibleProjectRows = filteredProjectRows.slice(start, end);
+
+    projectRows.forEach(row => {
+        row.style.display = 'none';
+    });
+    visibleProjectRows.forEach((row, index) => {
+        row.style.display = '';
+        const indexCell = row.querySelector('.row-index');
+        if (indexCell) {
+            indexCell.textContent = start + index + 1;
+        }
+    });
+
+    const emptyRow = document.getElementById('projectsEmptyRow');
+    if (emptyRow) {
+        emptyRow.style.display = total === 0 ? '' : 'none';
+    }
+
+    const selectAll = document.getElementById('selectAll');
+    if (selectAll) {
+        selectAll.checked = false;
+    }
+
+    updateProjectCounts(total, totalPages);
+    renderProjectsPagination(totalPages);
+}
+
+function applyProjectFilters() {
     const nameFilter = document.getElementById('filterName').value.toLowerCase();
     const statusFilter = document.getElementById('filterStatus').value;
-    const rows = document.querySelectorAll('#projectsTable tbody tr');
-
-    rows.forEach(row => {
+    filteredProjectRows = projectRows.filter(row => {
         const name = row.dataset.name?.toLowerCase() || '';
         const status = row.dataset.status || '';
         const matchName = !nameFilter || name.includes(nameFilter);
         const matchStatus = !statusFilter || status === statusFilter;
 
-        row.style.display = (matchName && matchStatus) ? '' : 'none';
+        return matchName && matchStatus;
     });
+    currentProjectsPage = 1;
+    renderProjectsPage();
+}
+
+function filterProjects() {
+    applyProjectFilters();
 }
 
 function clearFilter() {
     document.getElementById('filterName').value = '';
     document.getElementById('filterStatus').value = '';
-    filterProjects();
+    applyProjectFilters();
+}
+
+function changePageSize() {
+    currentProjectsPage = 1;
+    renderProjectsPage();
+}
+
+function goProjectsPage(page) {
+    const pageNumber = parseInt(page, 10);
+    currentProjectsPage = Number.isFinite(pageNumber) ? pageNumber : 1;
+    renderProjectsPage();
 }
 
 function toggleSelectAll() {
     const selectAll = document.getElementById('selectAll');
-    document.querySelectorAll('.row-checkbox').forEach(cb => {
+    visibleProjectRows.forEach(row => {
+        const cb = row.querySelector('.row-checkbox');
+        if (!cb) return;
         cb.checked = selectAll.checked;
     });
 }
@@ -477,5 +621,7 @@ async function testProjectNotify(inputId) {
         showNotification('请求失败: ' + e.message, 'error');
     }
 }
+
+applyProjectFilters();
 </script>
 {% endblock %}

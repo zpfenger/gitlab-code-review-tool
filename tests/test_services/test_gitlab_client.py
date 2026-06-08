@@ -130,7 +130,8 @@ class TestGitLabClient:
                 author_name="Test User",
                 author_email="test@example.com",
                 created_at="2024-01-01T00:00:00Z",
-                message="Test commit message"
+                message="Test commit message",
+                parent_ids=[]
             )
         ]
         mock_project.commits.list.return_value = mock_commits
@@ -158,7 +159,8 @@ class TestGitLabClient:
                 author_name="Test User",
                 author_email="test@example.com",
                 created_at="2024-01-01T00:00:00Z",
-                message=f"Commit {i}"
+                message=f"Commit {i}",
+                parent_ids=[]
             )
             for i in range(5)
         ]
@@ -240,3 +242,67 @@ class TestGitLabClient:
 
         assert info["name"] == "Test Project"
         assert info["path"] == "group/test-project"
+
+    def test_list_accessible_projects(self, client, mock_gitlab):
+        """测试列出 Access Token 可访问的项目"""
+        mock_project1 = Mock()
+        mock_project1.id = 101
+        mock_project1.name = "Alpha"
+        mock_project1.path_with_namespace = "group/alpha"
+        mock_project1.description = "Alpha project"
+        mock_project1.web_url = "https://gitlab.example.com/group/alpha"
+        mock_project1.default_branch = "main"
+
+        mock_project2 = Mock()
+        mock_project2.id = 102
+        mock_project2.name = "Beta"
+        mock_project2.path_with_namespace = "group/sub/beta"
+        mock_project2.description = None
+        mock_project2.web_url = "https://gitlab.example.com/group/sub/beta"
+        mock_project2.default_branch = None
+
+        mock_gitlab.return_value.projects.list.return_value = [mock_project1, mock_project2]
+
+        projects = client.list_accessible_projects()
+
+        mock_gitlab.return_value.projects.list.assert_called_once_with(get_all=True, simple=True)
+        assert projects == [
+            {
+                "id": 101,
+                "name": "Alpha",
+                "path_with_namespace": "group/alpha",
+                "description": "Alpha project",
+                "web_url": "https://gitlab.example.com/group/alpha",
+                "default_branch": "main",
+            },
+            {
+                "id": 102,
+                "name": "Beta",
+                "path_with_namespace": "group/sub/beta",
+                "description": "",
+                "web_url": "https://gitlab.example.com/group/sub/beta",
+                "default_branch": "",
+            },
+        ]
+
+    def test_list_accessible_projects_auth_error(self, client, mock_gitlab):
+        """测试列出项目时认证失败"""
+        mock_gitlab.return_value.projects.list.side_effect = gitlab.exceptions.GitlabAuthenticationError(
+            error_message="401 Unauthorized", response_code=401
+        )
+
+        with pytest.raises(GitLabAuthError) as exc_info:
+            client.list_accessible_projects()
+
+        assert "认证失败" in str(exc_info.value)
+
+    def test_list_accessible_projects_connection_error(self, client, mock_gitlab):
+        """测试列出项目时 GitLab 连接失败"""
+        mock_gitlab.return_value.projects.list.side_effect = gitlab.exceptions.GitlabConnectionError(
+            "Connection refused"
+        )
+
+        with pytest.raises(GitLabConnectionError) as exc_info:
+            client.list_accessible_projects()
+
+        assert "无法连接" in str(exc_info.value)

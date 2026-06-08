@@ -99,6 +99,45 @@ class GitLabClient:
             logger.error(f"获取项目信息失败 (project_id={project_id}): {type(e).__name__}: {e}")
             return {}
 
+    def list_accessible_projects(self) -> List[Dict[str, Any]]:
+        """
+        列出当前 Access Token 可访问的所有 GitLab 项目。
+
+        Returns:
+            List[Dict]: 项目信息列表
+
+        Raises:
+            GitLabAuthError: Token 认证失败（401）
+            GitLabConnectionError: 网络连接失败
+        """
+        try:
+            projects = self.client.projects.list(get_all=True, simple=True)
+            return [
+                {
+                    "id": project.id,
+                    "name": getattr(project, "name", "") or "",
+                    "path_with_namespace": getattr(project, "path_with_namespace", "") or "",
+                    "description": getattr(project, "description", "") or "",
+                    "web_url": getattr(project, "web_url", "") or "",
+                    "default_branch": getattr(project, "default_branch", "") or "",
+                }
+                for project in projects
+            ]
+        except gitlab.exceptions.GitlabAuthenticationError as e:
+            logger.error("列出 GitLab 项目失败 - 认证错误: Token 无效或已过期")
+            raise GitLabAuthError(
+                "列出 GitLab 项目失败: Token 认证失败，请检查 Token 是否有效且有 api 权限"
+            ) from e
+        except gitlab.exceptions.GitlabConnectionError as e:
+            logger.error(f"列出 GitLab 项目失败 - 连接错误: {e}")
+            raise GitLabConnectionError(
+                f"列出 GitLab 项目失败: 无法连接到 GitLab ({self.gitlab_url})",
+                gitlab_url=self.gitlab_url,
+            ) from e
+        except Exception as e:
+            logger.error(f"列出 GitLab 项目失败: {type(e).__name__}: {e}")
+            return []
+
     def get_branches(
         self,
         project_id: int,

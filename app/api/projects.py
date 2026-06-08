@@ -1,7 +1,8 @@
 # app/api/projects.py
+import re
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
-from typing import List
+from typing import Any, Dict, List, Set
 from app.database import get_db
 from app.api.deps import get_current_user
 from app.models import Project, User, Role
@@ -32,6 +33,52 @@ def _encrypt_project_sensitive(data: dict) -> None:
                 # 未加密的值才需要加密（排除双重加密、排除已是明文URL的情况）
                 data[field] = security_service.encrypt(value)
             # 已加密的不动
+
+
+_PROJECT_NAME_UNSAFE_RE = re.compile(r"[^\w\-\u4e00-\u9fa5\s]+")
+_PROJECT_NAME_SPACE_RE = re.compile(r"\s+")
+
+
+def _sanitize_project_name(value: str, fallback: str) -> str:
+    """转换为满足 Project.name 校验规则的安全名称。"""
+    raw = (value or fallback or "project").replace("/", " ")
+    sanitized = _PROJECT_NAME_UNSAFE_RE.sub(" ", raw)
+    sanitized = _PROJECT_NAME_SPACE_RE.sub(" ", sanitized).strip()
+    if not sanitized:
+        sanitized = fallback or "project"
+    return sanitized[:100].strip() or "project"
+
+
+def _make_unique_project_name(base_name: str, existing_names: Set[str], gitlab_project_id: int) -> str:
+    """生成不超过 100 字符且不与本地项目重名的项目名称。"""
+    candidate = base_name[:100].strip() or f"project {gitlab_project_id}"
+    if candidate not in existing_names:
+        existing_names.add(candidate)
+        return candidate
+
+    counter = 1
+    while True:
+        suffix = f" {gitlab_project_id}" if counter == 1 else f" {gitlab_project_id}-{counter}"
+        prefix_length = max(1, 100 - len(suffix))
+        candidate = f"{base_name[:prefix_length].rstrip()}{suffix}"
+        if candidate not in existing_names:
+            existing_names.add(candidate)
+            return candidate
+        counter += 1
+
+
+def _select_project_name(gitlab_project: Dict[str, Any], existing_names: Set[str]) -> str:
+    """根据 GitLab 项目信息选择本地唯一项目名。"""
+    gitlab_project_id = int(gitlab_project["id"])
+    fallback = f"project {gitlab_project_id}"
+    name = _sanitize_project_name(gitlab_project.get("name") or "", fallback)
+    if name in existing_names:
+        namespace_name = _sanitize_project_name(
+            gitlab_project.get("path_with_namespace") or "",
+            name,
+        )
+        name = namespace_name
+    return _make_unique_project_name(name, existing_names, gitlab_project_id)
 
 
 def _filter_projects_by_permission(projects: List[Project], user: User, db: Session) -> List[Project]:
@@ -144,6 +191,86 @@ async def create_project(
         db.commit()
     
     return ApiResponse(success=True, data=project, message="项目创建成功")
+
+
+@router.post("/sync-gitlab")
+async def sync_gitlab_projects(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_system_admin),
+):
+    """使用全局 GitLab Access Token 同步可访问项目，仅创建本地缺失项目。"""
+    from app.models.settings import Settings
+
+    settings = db.query(Settings).first()
+    if not settings:
+        return ApiResponse(success=False, message="系统设置未配置")
+
+    if not settings.global_gitlab_url:
+        return ApiResponse(success=False, message="全局 GitLab URL 未配置")
+
+    if not settings.global_gitlab_token:
+        return ApiResponse(success=False, message="全局 GitLab Token 未配置")
+
+    try:
+        token = security_service.decrypt(settings.global_gitlab_token)
+    except ValueError:
+        return ApiResponse(success=False, message="全局 GitLab Token 解密失败，请重新保存配置")
+
+    if not token:
+        return ApiResponse(success=False, message="全局 GitLab Token 未配置")
+
+    try:
+        client = GitLabClient(gitlab_url=settings.global_gitlab_url, access_token=token)
+        gitlab_projects = client.list_accessible_projects()
+    except GitLabAuthError as e:
+        return ApiResponse(success=False, message=f"GitLab 认证失败: {e}")
+    except GitLabConnectionError as e:
+        return ApiResponse(success=False, message=f"GitLab 连接失败: {e}")
+
+    existing_project_ids = {row[0] for row in db.query(Project.project_id).all()}
+    existing_names = {row[0] for row in db.query(Project.name).all()}
+
+    created_projects = []
+    skipped = 0
+    failed = 0
+
+    for gitlab_project in gitlab_projects:
+        gitlab_project_id = gitlab_project.get("id")
+        if not gitlab_project_id:
+            failed += 1
+            continue
+
+        gitlab_project_id = int(gitlab_project_id)
+        if gitlab_project_id in existing_project_ids:
+            skipped += 1
+            continue
+
+        project_name = _select_project_name(gitlab_project, existing_names)
+        project = Project(
+            name=project_name,
+            project_id=gitlab_project_id,
+            description=gitlab_project.get("description") or None,
+            target_branches=None,
+            is_active=True,
+        )
+        db.add(project)
+        existing_project_ids.add(gitlab_project_id)
+        created_projects.append({"name": project_name, "project_id": gitlab_project_id})
+
+    db.commit()
+
+    return ApiResponse(
+        success=True,
+        message="GitLab 项目同步完成",
+        data={
+            "created": len(created_projects),
+            "skipped": skipped,
+            "failed": failed,
+            "total": len(gitlab_projects),
+            "created_projects": created_projects,
+        },
+    )
 
 
 @router.get("/{project_id}", response_model=ApiResponse[ProjectResponse])
