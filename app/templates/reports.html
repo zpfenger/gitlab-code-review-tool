@@ -108,7 +108,7 @@
                                                 <span class="badge badge-info" style="margin-left: var(--space-1);">月报</span>
                                                 {% endif %}
                                             </a>
-                                            {% if 'system_admin' in current_user_roles or 'project_admin' in current_user_roles %}
+                                            {% if project_name in writable_project_names %}
                                             <button class="btn btn-sm" onclick="confirmDeleteReport('{{ project_name }}', '{{ file_info.type }}', '{{ date }}', '{{ author }}', '{{ file_info.filename }}')" title="删除报告">
                                                 <i class="bi bi-trash"></i>
                                             </button>

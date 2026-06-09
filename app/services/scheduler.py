@@ -101,6 +101,36 @@ class ReviewScheduler:
         )
         logger.info(f"已设置每月任务: 每月{day}日 {time}")
 
+    def setup_gitlab_sync_task(self, time: str, callback: Callable, job_id: str = 'gitlab_sync') -> None:
+        """
+        设置 GitLab 项目及成员同步任务（每日执行）
+
+        Args:
+            time: 执行时间 (HH:MM 格式)
+            callback: 回调函数
+            job_id: 任务 ID
+        """
+        hour, minute = time.split(':')
+        trigger = CronTrigger(hour=int(hour), minute=int(minute))
+
+        if self.scheduler is None:
+            self.scheduler = BackgroundScheduler()
+
+        if self.scheduler.get_job(job_id):
+            self.scheduler.remove_job(job_id)
+
+        # 使用独立线程执行，避免与代码审查任务互相阻塞
+        self.scheduler.add_job(
+            callback,
+            trigger=trigger,
+            id=job_id,
+            name='GitLab 项目及成员同步',
+            replace_existing=True,
+            max_instances=1,
+            misfire_grace_time=3600,
+        )
+        logger.info(f"已设置 GitLab 同步任务: {time}")
+
     def start(self) -> None:
         """启动调度器"""
         if not self.is_running:

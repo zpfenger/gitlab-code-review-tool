@@ -37,6 +37,7 @@ class GitLabClient:
         self.gitlab_url = gitlab_url
         self.access_token = access_token
         self.client = gitlab.Gitlab(gitlab_url, private_token=access_token)
+        self._user_profile_cache: Dict[int, Dict[str, Any]] = {}
 
     def test_connection(self) -> bool:
         """
@@ -137,6 +138,124 @@ class GitLabClient:
         except Exception as e:
             logger.error(f"列出 GitLab 项目失败: {type(e).__name__}: {e}")
             return []
+
+    def get_project_members(self, project_id: int) -> List[Dict[str, Any]]:
+        """
+        获取项目所有成员（含 Group 继承成员）
+
+        Args:
+            project_id: GitLab 项目 ID
+
+        Returns:
+            List[Dict]: 成员列表，每个成员包含:
+                - id: GitLab 用户 ID
+                - username: 用户名
+                - name: 姓名
+                - email: 邮箱
+                - access_level: 访问级别 (10=Guest, 20=Reporter, 30=Developer, 40=Maintainer, 50=Owner)
+                - source: 来源 ('project' = 直接成员, 'group' = 继承自 Group)
+
+        Raises:
+            GitLabAuthError: Token 认证失败
+            GitLabConnectionError: 网络连接失败
+        """
+        try:
+            project = self.client.projects.get(project_id)
+            try:
+                direct_members = project.members.list(all=True)
+                direct_member_ids = {m.id for m in direct_members}
+            except Exception as e:
+                logger.warning(f"获取项目 {project_id} 直接成员失败: {e}")
+                direct_member_ids = set()
+
+            # members/all 包含直接成员和继承自 Group 的成员
+            members = project.members_all.list(all=True)
+            result = []
+            for m in members:
+                source = getattr(m, 'source', None)
+                source_type = source.get('type') if isinstance(source, dict) else source
+                is_direct = m.id in direct_member_ids or source_type == 'project'
+                user_profile = self._get_user_profile(m.id)
+                email = self._extract_email(m) or user_profile.get("email", "")
+                bot = self._extract_bool(m, "bot")
+                result.append({
+                    "id": m.id,
+                    "username": m.username,
+                    "name": getattr(m, 'name', '') or '',
+                    "email": email,
+                    "access_level": m.access_level,
+                    "source": source,
+                    "is_direct": is_direct,
+                    "state": self._extract_string(m, "state") or user_profile.get("state", ""),
+                    "bot": bot if bot is not None else bool(user_profile.get("bot", False)),
+                    "user_type": self._extract_string(m, "user_type") or user_profile.get("user_type", ""),
+                })
+            return result
+        except gitlab.exceptions.GitlabAuthenticationError as e:
+            logger.error(f"GitLab 认证失败获取项目成员: {e}")
+            raise GitLabAuthError(
+                f"GitLab 认证失败: {e}",
+                project_id=project_id
+            ) from e
+        except gitlab.exceptions.GitlabConnectionError as e:
+            logger.error(f"GitLab 连接失败获取项目成员: {e}")
+            raise GitLabConnectionError(str(e)) from e
+        except Exception as e:
+            logger.error(f"获取项目 {project_id} 成员失败: {type(e).__name__}: {e}")
+            raise
+
+    @staticmethod
+    def _extract_value(obj: Any, field: str) -> Any:
+        value = getattr(obj, field, None)
+        if value is not None:
+            return value
+
+        attributes = getattr(obj, "attributes", None) or {}
+        if isinstance(attributes, dict):
+            return attributes.get(field)
+        return None
+
+    @classmethod
+    def _extract_email(cls, obj: Any) -> str:
+        """从 python-gitlab 对象或 attributes 中提取邮箱字段。"""
+        email = cls._extract_value(obj, "email") or cls._extract_value(obj, "public_email")
+        return str(email).strip() if email else ""
+
+    @classmethod
+    def _extract_string(cls, obj: Any, field: str) -> str:
+        value = cls._extract_value(obj, field)
+        return str(value).strip() if value is not None else ""
+
+    @classmethod
+    def _extract_bool(cls, obj: Any, field: str) -> Optional[bool]:
+        value = cls._extract_value(obj, field)
+        if value is None or value == "":
+            return None
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "y"}
+        return bool(value)
+
+    def _get_user_profile(self, user_id: int) -> Dict[str, Any]:
+        """成员列表缺少详情字段时，通过用户详情接口补齐。"""
+        if user_id in self._user_profile_cache:
+            return self._user_profile_cache[user_id]
+
+        profile: Dict[str, Any] = {}
+        try:
+            user = self.client.users.get(user_id)
+            profile = {
+                "email": self._extract_email(user),
+                "state": self._extract_string(user, "state"),
+                "bot": bool(self._extract_bool(user, "bot")),
+                "user_type": self._extract_string(user, "user_type"),
+            }
+        except Exception as e:
+            logger.warning(f"获取 GitLab 用户详情失败 user_id={user_id}: {type(e).__name__}: {e}")
+
+        self._user_profile_cache[user_id] = profile
+        return profile
 
     def get_branches(
         self,

@@ -16,7 +16,7 @@
     <div class="stat-card primary">
         <div class="stat-icon"><i class="bi bi-shield-fill-check"></i></div>
         <div class="stat-value" id="statTotalRoles">-</div>
-        <div class="stat-label">角色总数</div>
+        <div class="stat-label">有效角色数</div>
     </div>
     <div class="stat-card success">
         <div class="stat-icon"><i class="bi bi-people-fill"></i></div>
@@ -27,6 +27,21 @@
         <div class="stat-icon"><i class="bi bi-key-fill"></i></div>
         <div class="stat-value" id="statTotalPerms">-</div>
         <div class="stat-label">权限总数</div>
+    </div>
+</div>
+
+<!-- Default User Permission Note -->
+<div class="panel" style="margin-bottom: var(--space-4);">
+    <div class="panel-heading">
+        <div class="panel-title">
+            <i class="bi bi-person"></i> 项目成员（无角色）
+        </div>
+    </div>
+    <div class="panel-body">
+        <div style="color: var(--color-slate-600); font-size: var(--text-sm); line-height: 1.7;">
+            无任何系统角色的登录用户可查看自己所在项目、审查报告、Webhook 审查和人员能效菜单；
+            人员能效列表和团队概览全员可见，人员详情、审查报告和 Webhook 明细仅限本人数据，无项目编辑权限。
+        </div>
     </div>
 </div>
 
@@ -128,13 +143,12 @@ function renderRoles() {
     const roleColors = {
         'system_admin': { bg: 'var(--color-error-light, #fee2e2)', color: 'var(--color-error, #dc2626)', icon: 'bi-shield-fill', badge: 'badge-error' },
         'project_admin': { bg: 'var(--color-warning-light, #fef3c7)', color: 'var(--color-warning, #d97706)', icon: 'bi-folder-check', badge: 'badge-warning' },
-        'project_member': { bg: 'var(--color-info-light, #dbeafe)', color: 'var(--color-info, #2563eb)', icon: 'bi-eye', badge: 'badge-info' }
     };
 
     container.innerHTML = roleDefinitions.map(role => {
         const roleInfo = roles.find(r => r.name === role.name);
         const userCount = roleInfo ? roleInfo.user_count : 0;
-        const colors = roleColors[role.name] || roleColors['project_member'];
+        const colors = roleColors[role.name] || { bg: 'var(--color-slate-100)', color: 'var(--color-slate-600)', icon: 'bi-person', badge: 'badge-secondary' };
 
         return `
             <div class="widget-card" style="cursor: pointer;" onclick="viewRoleDetail('${role.name}')">

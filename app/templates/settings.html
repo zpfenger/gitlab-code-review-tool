@@ -304,7 +304,7 @@
             </div>
 
             <!-- Weekly Schedule -->
-            <div style="border: 1px solid var(--color-slate-200); border-radius: var(--radius-md); padding: var(--space-4);">
+            <div style="border: 1px solid var(--color-slate-200); border-radius: var(--radius-md); padding: var(--space-4); margin-bottom: var(--space-4);">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-4);">
                     <h6 style="margin: 0;"><i class="bi bi-calendar-week"></i> 每周代码审查</h6>
                     <div style="display: flex; align-items: center; gap: var(--space-2);">
@@ -340,6 +340,35 @@
                                name="weekly_review_days" min="1" max="90"
                                value="{{ settings.weekly_review_days or 7 }}">
                         <small class="text-muted">7 = 审查前一周</small>
+                    </div>
+                </div>
+            </div>
+
+            <!-- GitLab Sync Schedule -->
+            <div style="border: 1px solid var(--color-slate-200); border-radius: var(--radius-md); padding: var(--space-4);">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-4);">
+                    <h6 style="margin: 0;"><i class="bi bi-cloud-download"></i> GitLab 项目及成员同步</h6>
+                    <div style="display: flex; align-items: center; gap: var(--space-2);">
+                        <input type="checkbox" id="gitlab_sync_enabled"
+                               name="gitlab_sync_enabled" {% if settings.gitlab_sync_enabled %}checked{% endif %}
+                               style="width: 18px; height: 18px; accent-color: var(--color-primary);">
+                        <label for="gitlab_sync_enabled" style="margin: 0; font-size: var(--text-sm);">启用</label>
+                    </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4);">
+                    <div class="form-group">
+                        <label for="gitlab_sync_schedule_time" class="form-label">每日同步时间</label>
+                        <input type="time" class="form-input" id="gitlab_sync_schedule_time"
+                               name="gitlab_sync_schedule_time"
+                               value="{{ settings.gitlab_sync_schedule_time or '03:00' }}">
+                    </div>
+                    <div class="form-group">
+                        <label for="gitlab_sync_default_password" class="form-label">新建账号初始密码</label>
+                        <input type="password" class="form-input" id="gitlab_sync_default_password"
+                               name="gitlab_sync_default_password"
+                               placeholder="留空保持原值">
+                        <small class="text-muted">仅用于同步时新建的账号，已有账号密码不变</small>
                     </div>
                 </div>
             </div>
@@ -489,7 +518,10 @@ document.getElementById('settingsForm').addEventListener('submit', async functio
         weekly_review_days: parseInt(formData.get('weekly_review_days')) || 7,
         weekly_enabled: formData.get('weekly_enabled') === 'on',
         weekly_review_prompt: formData.get('weekly_review_prompt') || null,
-        scheduler_enabled: formData.get('scheduler_enabled') === 'on'
+        scheduler_enabled: formData.get('scheduler_enabled') === 'on',
+        gitlab_sync_enabled: formData.get('gitlab_sync_enabled') === 'on',
+        gitlab_sync_schedule_time: formData.get('gitlab_sync_schedule_time') || '03:00',
+        gitlab_sync_default_password: formData.get('gitlab_sync_default_password') || null
     };
 
     try {

@@ -249,3 +249,78 @@ class TestUpdateSettingsApiKey:
         # 验证原有值保留
         response = admin_session.get("/api/settings")
         assert response.json()["data"]["external_api_key"] == "****5678"
+
+
+class TestGitLabSyncSettings:
+    """测试 GitLab 项目及成员同步配置"""
+
+    def test_get_settings_includes_gitlab_sync_fields(self, admin_session, db_session):
+        settings = Settings(
+            global_gitlab_url="https://gitlab.example.com",
+            llm_api_url="https://api.example.com/v1",
+            llm_model="gpt-4",
+            report_output_dir="./data/reports",
+            gitlab_sync_enabled=True,
+            gitlab_sync_schedule_time="03:30",
+            gitlab_sync_default_password=security_service.encrypt("abc123"),
+        )
+        db_session.add(settings)
+        db_session.commit()
+
+        response = admin_session.get("/api/settings")
+
+        assert response.status_code == 200
+        data = response.json()["data"]
+        assert data["gitlab_sync_enabled"] is True
+        assert data["gitlab_sync_schedule_time"] == "03:30"
+        assert data["gitlab_sync_default_password"] == "****"
+
+    def test_update_gitlab_sync_settings_encrypts_default_password(
+        self, admin_session, settings_without_api_key, db_session
+    ):
+        response = admin_session.put("/api/settings", json={
+            "gitlab_sync_enabled": True,
+            "gitlab_sync_schedule_time": "04:15",
+            "gitlab_sync_default_password": "abc123",
+        })
+
+        assert response.status_code == 200
+        db_session.refresh(settings_without_api_key)
+        assert settings_without_api_key.gitlab_sync_enabled is True
+        assert settings_without_api_key.gitlab_sync_schedule_time == "04:15"
+        assert (
+            security_service.decrypt(
+                settings_without_api_key.gitlab_sync_default_password
+            )
+            == "abc123"
+        )
+
+    def test_empty_gitlab_sync_default_password_preserves_old(
+        self, admin_session, settings_without_api_key, db_session
+    ):
+        settings_without_api_key.gitlab_sync_default_password = (
+            security_service.encrypt("abc123")
+        )
+        db_session.commit()
+
+        response = admin_session.put("/api/settings", json={
+            "gitlab_sync_default_password": "",
+        })
+
+        assert response.status_code == 200
+        db_session.refresh(settings_without_api_key)
+        assert (
+            security_service.decrypt(
+                settings_without_api_key.gitlab_sync_default_password
+            )
+            == "abc123"
+        )
+
+    def test_invalid_gitlab_sync_schedule_time_returns_422(
+        self, admin_session, settings_without_api_key
+    ):
+        response = admin_session.put("/api/settings", json={
+            "gitlab_sync_schedule_time": "4:15",
+        })
+
+        assert response.status_code == 422

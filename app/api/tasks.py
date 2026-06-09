@@ -11,8 +11,9 @@ from app.models.project import Project
 from app.models.task_log import TaskLog
 from app.models import User, Role
 from app.security import security_service
-from app.api.users import get_current_user_full, require_project_admin
+from app.api.deps import get_current_user_full, require_project_admin
 from app.api.projects import _check_project_permission
+from app.core.permissions import get_readable_project_ids
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 
@@ -198,15 +199,11 @@ async def _run_review_task(
             if user_id:
                 user_obj = db.query(User).filter(User.id == user_id).first()
                 if user_obj:
-                    if user_obj.is_system_admin():
-                        pass  # 系统管理员看所有项目
-                    elif user_obj.is_project_admin():
-                        from app.models.user import project_admins as pa_table
-                        admin_stmt = pa_table.select().where(pa_table.c.user_id == user_obj.id)
-                        admin_project_ids = {row[0] for row in db.execute(admin_stmt).fetchall()}
-                        projects_list = [p for p in projects_list if p.id in admin_project_ids]
+                    readable_ids = get_readable_project_ids(user_obj, db)
+                    if readable_ids is None:
+                        pass  # system_admin 看所有项目
                     else:
-                        projects_list = []  # 普通成员不能执行任务
+                        projects_list = [p for p in projects_list if p.id in readable_ids]
 
         if not projects_list:
             _task_progress["error"] = "No active projects found"

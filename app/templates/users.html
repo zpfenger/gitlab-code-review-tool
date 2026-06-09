@@ -63,6 +63,15 @@
         color: #dc3545;
         font-size: 12px;
     }
+    .user-select-cell {
+        width: 42px;
+        text-align: center;
+    }
+    .user-select-cell input {
+        width: 16px;
+        height: 16px;
+        accent-color: var(--color-primary);
+    }
 </style>
 {% endblock %}
 
@@ -83,9 +92,14 @@
         <div class="panel-title">
             <i class="bi bi-list-ul"></i> 用户列表
         </div>
-        <button class="btn btn-primary" onclick="openCreateUserModal()">
-            <i class="bi bi-plus-lg me-1"></i>创建账号
-        </button>
+        <div style="display: flex; gap: var(--space-2); flex-wrap: wrap;">
+            <button class="btn btn-secondary" id="syncGitlabAccountsBtn" onclick="syncGitlabAccounts()">
+                <i class="bi bi-cloud-download me-1"></i>同步 GitLab 账号
+            </button>
+            <button class="btn btn-primary" onclick="openCreateUserModal()">
+                <i class="bi bi-plus-lg me-1"></i>创建账号
+            </button>
+        </div>
     </div>
 
     <!-- Panel Body -->
@@ -118,6 +132,10 @@
                 <span style="font-size: var(--text-sm); color: var(--color-slate-600);">
                     共 <b id="userCount">0</b> 个用户
                 </span>
+                <span id="selectedUserCount" style="font-size: var(--text-sm); color: var(--color-slate-600); margin-left: var(--space-3);">已选 0 个</span>
+                <button class="btn btn-danger btn-sm" id="batchDeleteUsersBtn" onclick="batchDeleteSelectedUsers()" disabled>
+                    <i class="bi bi-trash me-1"></i>批量删除
+                </button>
             </div>
         </div>
 
@@ -126,6 +144,9 @@
             <table class="app-table-list">
                 <thead>
                     <tr>
+                        <th class="user-select-cell">
+                            <input type="checkbox" id="selectAllUsersCheckbox" onchange="toggleSelectAllUsers(this.checked)" title="全选当前列表可删除账号">
+                        </th>
                         <th style="width: 50px;">序号</th>
                         <th style="width: 120px;">操作</th>
                         <th>用户名</th>
@@ -138,7 +159,7 @@
                 </thead>
                 <tbody id="usersTableBody">
                     <tr>
-                        <td colspan="8" style="text-align: center; color: var(--color-slate-500); padding: var(--space-8);">
+                        <td colspan="9" style="text-align: center; color: var(--color-slate-500); padding: var(--space-8);">
                             <div class="spinner-border spinner-border-sm me-2" role="status"></div>
                             加载中...
                         </td>
@@ -185,10 +206,6 @@
                 <label class="role-checkbox">
                     <input type="checkbox" name="createRoles" value="project_admin">
                     <span class="role-label project-admin">项目管理员</span>
-                </label>
-                <label class="role-checkbox">
-                    <input type="checkbox" name="createRoles" value="project_member">
-                    <span class="role-label project-member">项目成员</span>
                 </label>
             </div>
         </div>
@@ -241,10 +258,6 @@
                 <label class="role-checkbox">
                     <input type="checkbox" name="editRoles" value="project_admin">
                     <span class="role-label project-admin">项目管理员</span>
-                </label>
-                <label class="role-checkbox">
-                    <input type="checkbox" name="editRoles" value="project_member">
-                    <span class="role-label project-member">项目成员</span>
                 </label>
             </div>
         </div>
@@ -305,8 +318,8 @@
                 </div>
             </div>
             <div id="memberCol">
-                <h6><i class="bi bi-eye me-1"></i>项目成员权限</h6>
-                <p class="text-muted small">可查看以下项目的数据（不能修改）</p>
+                <h6><i class="bi bi-eye me-1"></i>GitLab 同步成员关系</h6>
+                <p class="text-muted small">成员关系由 GitLab 同步维护，仅用于查看</p>
                 <div class="project-checklist" id="memberProjectsList">
                     <!-- 动态加载 -->
                 </div>
@@ -348,13 +361,13 @@
 <script>
     let allUsers = [];
     let allProjects = [];
+    let selectedUserIds = new Set();
     let currentFilter = { search: '', status: '' };
     // 当前用户角色（从后端传入，用于权限校验）
     const currentUserRoles = {{ current_user_roles | tojson if current_user_roles else '[]' }};
     // 当前用户可分配哪些权限
     const isCurrentUserSystemAdmin = Array.isArray(currentUserRoles) && currentUserRoles.includes('system_admin');
     const canCurrentUserAssignProjectAdmin = isCurrentUserSystemAdmin || (Array.isArray(currentUserRoles) && currentUserRoles.includes('project_admin'));
-    const canCurrentUserAssignProjectMember = isCurrentUserSystemAdmin || (Array.isArray(currentUserRoles) && currentUserRoles.includes('project_member'));
 
     // 非系统管理员隐藏系统管理员角色选项
     if (!isCurrentUserSystemAdmin) {
@@ -365,7 +378,7 @@
     }
 
     // 无角色分配权限时隐藏角色编辑区块
-    if (!canCurrentUserAssignProjectAdmin && !canCurrentUserAssignProjectMember) {
+    if (!canCurrentUserAssignProjectAdmin) {
         const editRoleSection = document.getElementById('editRoleSection');
         if (editRoleSection) editRoleSection.style.display = 'none';
     }
@@ -385,17 +398,18 @@
                     showNotification('您没有权限访问账号管理', 'danger');
                 }
                 document.getElementById('usersTableBody').innerHTML =
-                    '<tr><td colspan="8" style="text-align: center; color: var(--color-error); padding: var(--space-8);">无权限或加载失败，请重新登录</td></tr>';
+                    '<tr><td colspan="9" style="text-align: center; color: var(--color-error); padding: var(--space-8);">无权限或加载失败，请重新登录</td></tr>';
                 return;
             }
             const data = await resp.json();
             // 后端直接返回数组，兼容两种格式
             allUsers = Array.isArray(data) ? data : (data.data || []);
+            selectedUserIds.clear();
             renderUsers();
         } catch (e) {
             showNotification('加载用户列表失败', 'danger');
             document.getElementById('usersTableBody').innerHTML =
-                '<tr><td colspan="8" style="text-align: center; color: var(--color-error); padding: var(--space-8);">加载失败，请刷新页面重试</td></tr>';
+                '<tr><td colspan="9" style="text-align: center; color: var(--color-error); padding: var(--space-8);">加载失败，请刷新页面重试</td></tr>';
         }
     }
 
@@ -410,6 +424,151 @@
             renderProjectLists();
         } catch (e) {
             console.error('加载项目列表失败:', e);
+        }
+    }
+
+    function buildGitLabAccountSyncSummary(data) {
+        if (!data) return '';
+
+        const parts = [
+            `新增账号 ${data.created_users || 0} 个`,
+            `同步成员 ${data.synced_members || 0} 条`,
+            `同步项目管理员 ${data.synced_admins || 0} 条`,
+        ];
+        if ((data.failed_projects || 0) > 0) {
+            parts.push(`失败项目 ${data.failed_projects} 个`);
+        }
+        return parts.join('，');
+    }
+
+    // 手动同步 GitLab 账号
+    async function syncGitlabAccounts() {
+        if (!confirm('将从全局 GitLab 配置同步项目、账号及成员关系，继续同步吗？')) {
+            return;
+        }
+
+        const btn = document.getElementById('syncGitlabAccountsBtn');
+        const originalHtml = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>同步中...';
+
+        try {
+            const resp = await apiRequest('/api/users/sync-gitlab', {
+                method: 'POST',
+            });
+            if (!resp) {
+                showNotification('同步失败，请重新登录后重试', 'danger');
+                return;
+            }
+
+            const result = await resp.json();
+            if (resp.ok && result.success) {
+                const summary = buildGitLabAccountSyncSummary(result.data);
+                showNotification(summary ? `${result.message}：${summary}` : result.message, 'success');
+                await loadUsers();
+                await loadProjects();
+            } else {
+                showNotification(result.detail || result.message || 'GitLab 账号同步失败', 'danger');
+            }
+        } catch (e) {
+            showNotification('同步失败，请重试', 'danger');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+        }
+    }
+
+    function isUserDeletable(user) {
+        return !(user.roles || []).includes('system_admin');
+    }
+
+    function toggleUserSelection(userId, checked) {
+        if (checked) {
+            selectedUserIds.add(userId);
+        } else {
+            selectedUserIds.delete(userId);
+        }
+        updateSelectAllUsersCheckbox();
+        updateBatchDeleteButton();
+    }
+
+    function toggleSelectAllUsers(checked) {
+        document.querySelectorAll('.user-select-checkbox:not(:disabled)').forEach(cb => {
+            cb.checked = checked;
+            const userId = parseInt(cb.value, 10);
+            if (checked) {
+                selectedUserIds.add(userId);
+            } else {
+                selectedUserIds.delete(userId);
+            }
+        });
+        updateSelectAllUsersCheckbox();
+        updateBatchDeleteButton();
+    }
+
+    function updateSelectAllUsersCheckbox() {
+        const selectAll = document.getElementById('selectAllUsersCheckbox');
+        if (!selectAll) return;
+
+        const selectable = Array.from(document.querySelectorAll('.user-select-checkbox:not(:disabled)'));
+        const checked = selectable.filter(cb => cb.checked);
+        selectAll.checked = selectable.length > 0 && checked.length === selectable.length;
+        selectAll.indeterminate = checked.length > 0 && checked.length < selectable.length;
+        selectAll.disabled = selectable.length === 0;
+    }
+
+    function updateBatchDeleteButton() {
+        const btn = document.getElementById('batchDeleteUsersBtn');
+        const count = document.getElementById('selectedUserCount');
+        if (btn) btn.disabled = selectedUserIds.size === 0;
+        if (count) count.textContent = `已选 ${selectedUserIds.size} 个`;
+    }
+
+    async function batchDeleteSelectedUsers() {
+        const deletableIds = Array.from(selectedUserIds).filter(userId => {
+            const user = allUsers.find(u => u.id === userId);
+            return user && isUserDeletable(user);
+        });
+
+        if (deletableIds.length === 0) {
+            showNotification('请选择可删除的账号', 'warning');
+            return;
+        }
+        if (!confirm(`确定要删除已选 ${deletableIds.length} 个账号吗？此操作不可恢复。`)) {
+            return;
+        }
+
+        const btn = document.getElementById('batchDeleteUsersBtn');
+        const originalHtml = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>删除中...';
+
+        try {
+            const resp = await apiRequest('/api/users/batch-delete', {
+                method: 'POST',
+                body: JSON.stringify({ user_ids: deletableIds }),
+            });
+            if (!resp) {
+                showNotification('批量删除失败，请重新登录后重试', 'danger');
+                return;
+            }
+
+            const result = await resp.json();
+            if (resp.ok && result.success) {
+                selectedUserIds.clear();
+                const skippedText = result.skipped_count ? `，跳过 ${result.skipped_count} 个` : '';
+                showNotification(`已删除 ${result.deleted_count || 0} 个账号${skippedText}`, result.skipped_count ? 'warning' : 'success');
+                await loadUsers();
+            } else {
+                showNotification(result.detail || result.message || '批量删除失败', 'danger');
+            }
+        } catch (e) {
+            showNotification('批量删除失败，请重试', 'danger');
+        } finally {
+            btn.disabled = selectedUserIds.size === 0;
+            btn.innerHTML = originalHtml;
+            updateSelectAllUsersCheckbox();
+            updateBatchDeleteButton();
         }
     }
 
@@ -434,16 +593,20 @@
         document.getElementById('userCount').textContent = filtered.length;
 
         if (filtered.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--color-slate-500); padding: var(--space-8);">暂无数据</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; color: var(--color-slate-500); padding: var(--space-8);">暂无数据</td></tr>';
+            updateSelectAllUsersCheckbox();
+            updateBatchDeleteButton();
             return;
         }
 
         tbody.innerHTML = filtered.map((user, index) => {
+            const canDelete = isUserDeletable(user);
+            const selected = selectedUserIds.has(user.id);
             const roleBadges = user.roles.map(role => {
                 const roleClass = role === 'system_admin' ? 'badge-error' :
                                   role === 'project_admin' ? 'badge-warning' : 'badge-info';
                 const roleName = role === 'system_admin' ? '系统管理员' :
-                                role === 'project_admin' ? '项目管理员' : '项目成员';
+                                role === 'project_admin' ? '项目管理员' : '其他角色';
                 return `<span class="badge ${roleClass}">${roleName}</span>`;
             }).join(' ');
 
@@ -457,6 +620,9 @@
 
             return `
                 <tr>
+                    <td class="user-select-cell">
+                        <input type="checkbox" class="user-select-checkbox" value="${user.id}" onchange="toggleUserSelection(${user.id}, this.checked)" ${selected ? 'checked' : ''} ${canDelete ? '' : 'disabled title="系统管理员账号不能删除"'}>
+                    </td>
                     <td>${index + 1}</td>
                     <td>
                         <div class="operation-group">
@@ -492,6 +658,8 @@
                 </tr>
             `;
         }).join('');
+        updateSelectAllUsersCheckbox();
+        updateBatchDeleteButton();
     }
 
     // 筛选用户
@@ -681,23 +849,19 @@
         // 根据被编辑用户拥有的角色，决定显示哪些列
         const userRoles = user.roles || [];
         const hasProjectAdminRole = userRoles.includes('project_admin');
-        const hasProjectMemberRole = userRoles.includes('project_member');
 
         document.getElementById('adminCol').style.display = hasProjectAdminRole ? '' : 'none';
-        document.getElementById('memberCol').style.display = hasProjectMemberRole ? '' : 'none';
+        document.getElementById('memberCol').style.display = 'none';
 
         // 动态调整 permRow 布局
         const adminCol = document.getElementById('adminCol');
         const memberCol = document.getElementById('memberCol');
-        if (!hasProjectAdminRole && hasProjectMemberRole) {
-            memberCol.style.gridColumn = '1 / -1';
-            adminCol.style.display = 'none';
-        } else if (hasProjectAdminRole && !hasProjectMemberRole) {
+        if (hasProjectAdminRole) {
             adminCol.style.gridColumn = '1 / -1';
             memberCol.style.display = 'none';
         } else {
             adminCol.style.gridColumn = '';
-            memberCol.style.gridColumn = '';
+            memberCol.style.display = 'none';
         }
 
         // 加载用户详情获取当前项目权限
@@ -782,14 +946,6 @@
                 if (!resp1.ok) success = false;
             }
 
-            // 只有当前用户有权限分配项目成员权限时，才保存
-            if (canCurrentUserAssignProjectMember) {
-                const resp2 = await apiRequest(`/api/users/${userId}/projects/member`, {
-                    method: 'POST',
-                    body: JSON.stringify(memberProjectIds),
-                });
-                if (!resp2.ok) success = false;
-            }
 
             if (success) {
                 showNotification('权限保存成功', 'success');

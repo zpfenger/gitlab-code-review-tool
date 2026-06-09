@@ -2,6 +2,7 @@
 """GitLab 客户端测试"""
 import pytest
 from unittest.mock import Mock, patch, MagicMock
+from types import SimpleNamespace
 import gitlab.exceptions
 from app.services.gitlab_client import GitLabClient, GitLabAuthError, GitLabConnectionError
 
@@ -306,3 +307,107 @@ class TestGitLabClient:
             client.list_accessible_projects()
 
         assert "无法连接" in str(exc_info.value)
+
+    def test_get_project_members_fetches_email_from_user_detail_when_member_email_missing(
+        self, client, mock_gitlab
+    ):
+        """成员列表无 email 时，从用户详情补齐邮箱"""
+        mock_project = Mock()
+        direct_member = SimpleNamespace(id=21)
+        inherited_member = SimpleNamespace(
+            id=21,
+            username="jane",
+            name="Jane Doe",
+            access_level=30,
+            source={"type": "project"},
+        )
+        mock_project.members.list.return_value = [direct_member]
+        mock_project.members_all.list.return_value = [inherited_member]
+        mock_gitlab.return_value.projects.get.return_value = mock_project
+        mock_gitlab.return_value.users.get.return_value = SimpleNamespace(
+            email="jane@example.com",
+            public_email="",
+            state="active",
+            bot=False,
+            user_type="human",
+        )
+
+        members = client.get_project_members(project_id=1)
+
+        assert members[0]["email"] == "jane@example.com"
+        assert members[0]["state"] == "active"
+        assert members[0]["bot"] is False
+        assert members[0]["user_type"] == "human"
+        mock_gitlab.return_value.users.get.assert_called_once_with(21)
+
+    def test_get_project_members_uses_public_email_from_user_detail(
+        self, client, mock_gitlab
+    ):
+        """用户详情无 email 时，使用 public_email 兜底"""
+        mock_project = Mock()
+        member = SimpleNamespace(
+            id=22,
+            username="public",
+            name="Public User",
+            access_level=30,
+            source={"type": "project"},
+        )
+        mock_project.members.list.return_value = [SimpleNamespace(id=22)]
+        mock_project.members_all.list.return_value = [member]
+        mock_gitlab.return_value.projects.get.return_value = mock_project
+        mock_gitlab.return_value.users.get.return_value = SimpleNamespace(
+            email="",
+            public_email="public@example.com",
+        )
+
+        members = client.get_project_members(project_id=1)
+
+        assert members[0]["email"] == "public@example.com"
+
+    def test_get_project_members_includes_inactive_and_bot_metadata_from_user_detail(
+        self, client, mock_gitlab
+    ):
+        """同步策略需要用户状态和 Bot 标记"""
+        mock_project = Mock()
+        inactive_member = SimpleNamespace(
+            id=23,
+            username="blocked",
+            name="Blocked User",
+            access_level=30,
+            source={"type": "project"},
+        )
+        bot_member = SimpleNamespace(
+            id=24,
+            username="project_1_bot",
+            name="Project Bot",
+            access_level=30,
+            source={"type": "project"},
+        )
+        mock_project.members.list.return_value = [
+            SimpleNamespace(id=23),
+            SimpleNamespace(id=24),
+        ]
+        mock_project.members_all.list.return_value = [inactive_member, bot_member]
+        mock_gitlab.return_value.projects.get.return_value = mock_project
+        mock_gitlab.return_value.users.get.side_effect = [
+            SimpleNamespace(
+                email="blocked@example.com",
+                state="blocked",
+                bot=False,
+                user_type="human",
+            ),
+            SimpleNamespace(
+                email="project_1_bot@example.com",
+                state="active",
+                bot=True,
+                user_type="project_bot",
+            ),
+        ]
+
+        members = client.get_project_members(project_id=1)
+
+        assert members[0]["state"] == "blocked"
+        assert members[0]["bot"] is False
+        assert members[1]["state"] == "active"
+        assert members[1]["bot"] is True
+        assert members[1]["user_type"] == "project_bot"

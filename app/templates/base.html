@@ -45,7 +45,7 @@
 
                 <div class="nav-section">
                     <div class="nav-section-title">任务</div>
-                    <a class="nav-item {% if '/logs' in request.url.path %}active{% endif %}" href="/logs">
+                    <a class="nav-item {% if '/logs' in request.url.path %}active{% endif %}" href="/logs" id="taskLogNavItem">
                         <i class="bi bi-list-check"></i>
                         任务日志
                     </a>
@@ -380,6 +380,8 @@
             const data = await resp.json();
 
             const isSystemAdmin = data.roles && data.roles.includes('system_admin');
+            const isProjectAdmin = data.roles && data.roles.includes('project_admin');
+            const hasAdminRole = isSystemAdmin || isProjectAdmin;
 
             // 系统管理菜单（账号、权限）仅系统管理员可见
             if (adminSection) {
@@ -391,16 +393,22 @@
                 settingsSection.style.display = isSystemAdmin ? '' : 'none';
             }
 
+            // 任务日志仅系统管理员和项目管理员可见
+            const taskLogItem = document.getElementById('taskLogNavItem');
+            if (taskLogItem) {
+                taskLogItem.style.display = hasAdminRole ? '' : 'none';
+            }
+
             // 更新用户角色显示
             const roleElement = document.querySelector('.user-role');
             if (roleElement && data.roles) {
                 const roleMap = {
                     'system_admin': '系统管理员',
-                    'project_admin': '项目管理员',
-                    'project_member': '项目成员'
+                    'project_admin': '项目管理员'
                 };
-                const roleNames = data.roles.map(r => roleMap[r] || r).join(', ');
-                roleElement.textContent = roleNames || '用户';
+                const mappedNames = data.roles.map(r => roleMap[r]).filter(Boolean);
+                const roleNames = mappedNames.join(', ') || '项目成员';
+                roleElement.textContent = roleNames;
             }
         } catch (e) {
             console.error('检查权限失败:', e);

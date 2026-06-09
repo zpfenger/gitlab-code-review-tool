@@ -9,7 +9,8 @@
 
 ## 核心能力
 
-- 用户认证与 RBAC 权限管理（系统管理员 / 项目管理员 / 普通用户）
+- 用户认证与 RBAC 权限管理（系统管理员 / 项目管理员 / 无角色普通用户）
+- **GitLab 项目及成员同步**（自动同步项目成员关系，支持手动和定时同步）
 - 项目级配置（GitLab/SVN/通知渠道可覆盖全局配置）
 - 日报/周报任务执行与状态追踪
 - Webhook 实时审查（MR / Push）
@@ -18,6 +19,7 @@
 - 多渠道通知（企业微信）
 - 敏感字段加密存储（Token / Webhook URL 等）
 - **人员能效分析**（日度/月度聚合、LLM 智能评分、团队概览与个人详情）
+- **权限规则集中化**（纯函数权限计算模块，统一权限判断逻辑）
 
 ---
 
@@ -38,6 +40,7 @@
 app/
   api/                    # HTTP 接口层
     auth.py               # 登录认证
+    deps.py               # 依赖注入（权限校验函数）
     projects.py           # 项目管理
     settings.py           # 系统设置
     tasks.py              # 任务控制
@@ -47,6 +50,8 @@ app/
     webhook_reviews.py    # Webhook 审查记录
     users.py              # 用户管理
     roles.py              # 角色权限管理
+  core/                   # 核心业务逻辑
+    permissions.py        # 权限计算纯函数模块
   models/                 # ORM 模型
     user.py               # 用户 / 角色 / 权限
     project.py            # 项目
@@ -60,6 +65,7 @@ app/
   services/               # 核心业务服务
     im/                   # 通知渠道适配（钉钉/企业微信/飞书）
     gitlab_client.py      # GitLab API 客户端
+    gitlab_sync_service.py # GitLab 项目及成员同步服务
     code_reviewer.py      # LLM 代码审查
     webhook_handler.py    # Webhook 事件处理
     webhook_worker.py     # Webhook 异步审查
@@ -223,13 +229,13 @@ uvicorn app.main:app --host 0.0.0.0 --port 5001 --reload
 | 登录 | `/login` | 公开 |
 | 首页仪表盘 | `/` | 登录用户 |
 | 项目管理 | `/projects` | 登录用户（按权限过滤） |
-| 系统设置 | `/settings` | 系统管理员 |
-| 任务日志 | `/logs` | 登录用户（按权限过滤） |
+| 系统设置 | `/settings` | 仅系统管理员 |
+| 任务日志 | `/logs` | 系统管理员 / 项目管理员 |
 | 报告中心 | `/reports` | 登录用户（按权限过滤） |
-| Webhook 审查 | `/webhook-reviews` | 登录用户 |
-| **人员能效** | `/efficiency` | 登录用户（按权限过滤） |
-| 账号管理 | `/users` | 系统管理员 |
-| 权限管理 | `/roles` | 系统管理员 |
+| Webhook 审查 | `/webhook-reviews` | 登录用户（按权限过滤） |
+| **人员能效** | `/efficiency` | 登录用户（列表全员可见，详情按权限） |
+| 账号管理 | `/users` | 仅系统管理员 |
+| 权限管理 | `/roles` | 仅系统管理员 |
 
 ---
 
@@ -434,6 +440,18 @@ sudo journalctl -u gitlab-code-review --since "-1 hour"      # 最近 1 小时
 | PUT | `/api/auth/profile` | 更新个人资料 |
 | PUT | `/api/auth/change-password` | 修改密码 |
 
+### 项目管理
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/projects` | 项目列表（按权限过滤） |
+| POST | `/api/projects` | 创建项目（系统管理员/项目管理员） |
+| PUT | `/api/projects/{project_id}` | 更新项目 |
+| DELETE | `/api/projects/{project_id}` | 删除项目（仅系统管理员） |
+| POST | `/api/projects/sync-gitlab` | 同步 GitLab 项目及成员（仅系统管理员） |
+| POST | `/api/projects/{project_id}/test` | 测试项目连接 |
+| GET | `/api/projects/{project_id}/members` | 获取项目成员列表 |
+
 ### 用户管理
 
 | 方法 | 路径 | 说明 |
@@ -442,7 +460,9 @@ sudo journalctl -u gitlab-code-review --since "-1 hour"      # 最近 1 小时
 | POST | `/api/users` | 创建用户 |
 | PUT | `/api/users/{user_id}` | 更新用户 |
 | DELETE | `/api/users/{user_id}` | 删除用户 |
+| POST | `/api/users/batch-delete` | 批量删除用户 |
 | POST | `/api/users/{user_id}/reset-password` | 重置用户密码 |
+| POST | `/api/users/sync-gitlab` | 同步 GitLab 账号 |
 
 ### 角色权限
 
@@ -587,26 +607,67 @@ curl -H "X-API-Key: YOUR_KEY" \
 |------|------|
 | system_admin | 系统管理员，可管理用户/角色/全局设置，拥有所有权限 |
 | project_admin | 项目管理员，可管理授权项目，按项目维度控制数据可见性 |
-| project_member | 项目成员（由 GitLab 同步维护，不再手动分配） |
+| （无角色） | 普通用户，由 GitLab 同步维护项目成员关系，无系统角色 |
+
+> **注意**：`project_member` 角色已废弃，不再展示、初始化或分配。项目成员关系由 GitLab 同步自动维护。
+
+### 权限判断决策树
+
+```
+用户请求 → get_current_user_full(session.username)
+    │
+    ├─ is_system_admin()? ─── YES → 全部可读可写，跳过所有过滤
+    │
+    ├─ is_project_admin()? ─── YES → get_readable_project_ids() = admins ∪ members
+    │                                 get_writable_project_ids() = admins 仅
+    │
+    └─ 无角色(普通用户) ──── get_readable_project_ids() = project_members 仅
+                              get_writable_project_ids() = ∅ (无写权限)
+                              can_view_person_detail() = 仅 target == self
+```
 
 ### 权限矩阵
 
-| 功能 | system_admin | project_admin (管理项目) | project_admin (其他项目) | 普通用户 |
-|------|-------------|------------------------|------------------------|---------|
+| 功能 | system_admin | project_admin (管理项目) | project_admin (其他项目) | 无角色普通用户 |
+|------|-------------|------------------------|------------------------|--------------|
+| 系统设置 | ✅ | ❌ | ❌ | ❌ |
+| 账号管理 | ✅ | ❌ | ❌ | ❌ |
+| 权限管理 | ✅ | ❌ | ❌ | ❌ |
+| 项目管理 | 全部项目 | 管理的项目（可写）+ 成员项目（只读） | 成员项目（只读） | 成员项目（只读） |
+| 项目新增 | ✅ | ✅ | ❌ | ❌ |
 | 审查报告 | 全部人员 | 全部人员 | 仅自己 | 仅自己 |
 | Webhook 审查 | 全部人员 | 全部人员 | 仅自己 | 仅自己 |
-| 人员能效列表 | 全部人员 | 全部人员 | 仅自己（置灰） | 仅自己 |
-| 人员能效详情 | 全部人员 | 全部人员 | 不可查看 | 仅自己 |
-| 项目管理 | 全部 | 管理的项目 | - | - |
-| 报告删除 | 全部 | 管理的项目 | - | - |
+| 人员能效列表 | 全部人员 | 全部人员 | 全部人员 | 全部人员 |
+| 人员能效详情 | 全部人员 | 管理项目内成员 | 仅自己 | 仅自己 |
+| 报告删除 | 全部 | 管理的项目 | ❌ | ❌ |
+| 任务日志 | 全部 | 可读项目 | 可读项目 | 隐藏菜单 |
 
 ### 项目管理员特殊规则
 
 项目管理员的数据可见性按**项目维度**进行精细控制：
 
 1. **自己管理的项目**：可查看该项目所有人员的数据（报告、审查记录、能效详情）
-2. **其他项目**：只能查看自己的数据，其他人员数据置灰或不可访问
-3. **人员能效详情**：严格按 `projects_involved`（涉及项目）判断，只有当人员提交涉及的项目包含管理员管理的项目时，才可查看详情
+2. **其他项目（仅成员）**：只能查看自己的数据，其他人员数据置灰或不可访问
+3. **人员能效详情**：严格按项目成员关系判断，只有当人员是管理员管理项目的成员或管理员时，才可查看详情
+
+### GitLab 角色映射规则
+
+| GitLab 角色 | 本地映射 |
+|-------------|---------|
+| Owner/Maintainer（直接成员） | project_members + project_admins + project_admin 角色 |
+| Owner/Maintainer（继承自 Group） | project_members（只读） |
+| Developer/Reporter/Guest | project_members（只读） |
+
+### 权限计算模块
+
+项目使用集中化的权限计算纯函数模块 `app/core/permissions.py`：
+
+- `get_readable_project_ids(user, db)` - 获取用户可读项目 ID 集合
+- `get_writable_project_ids(user, db)` - 获取用户可写项目 ID 集合
+- `can_read_project(user, project_id, db)` - 检查项目读权限
+- `can_write_project(user, project_id, db)` - 检查项目写权限
+- `can_view_person_detail(user, target_email, db)` - 检查人员能效详情权限
+- `is_self_identity(user, email_or_author)` - 判断是否为本人数据
 
 ---
 
@@ -621,6 +682,7 @@ curl -H "X-API-Key: YOUR_KEY" \
 - 支持文件扩展名（用于过滤变更）
 - 调度开关与执行时间（日报/周报）
 - 人员能效配置（启用开关、工作总结条目上限、日度/月度提示词模板）
+- **GitLab 同步配置**（自动同步开关、每日同步时间、新用户默认密码）
 
 ### 项目配置（Project）
 
@@ -632,6 +694,56 @@ curl -H "X-API-Key: YOUR_KEY" \
 ---
 
 ## 行为规则
+
+### GitLab 项目及成员同步
+
+系统支持自动同步 GitLab 项目成员关系，确保权限与 GitLab 保持一致。
+
+#### 同步入口
+
+- **手动同步**：项目管理页"同步 GitLab 项目及成员"按钮（仅系统管理员）
+- **自动同步**：通过系统设置启用，每日定时执行
+- **API 同步**：`POST /api/projects/sync-gitlab`
+
+#### 同步流程
+
+```
+sync-gitlab 触发(手动/定时)
+    │
+    ├─ 1. 读取全局 GitLab URL + Token
+    ├─ 2. 拉取 GitLab 可访问项目
+    ├─ 3. 创建本地缺失项目
+    │
+    └─ 4. 对每个项目(Per-project 事务):
+         │
+         ├─ 4a. 拉取项目成员（members/all，含继承成员）
+         ├─ 4b. 匹配本地用户（email 优先，username 兜底）
+         ├─ 4c. 覆盖保护（失败不清空，成功才重写）
+         └─ 4d. commit（仅本项目）
+```
+
+#### 角色映射规则
+
+| GitLab 角色 | 直接成员 | 继承成员（Group） |
+|-------------|---------|------------------|
+| Owner/Maintainer | 写入 project_members + project_admins + 追加 project_admin 角色 | 仅写入 project_members（只读） |
+| Developer/Reporter/Guest | 仅写入 project_members | 仅写入 project_members |
+
+#### 同步结果
+
+同步完成后返回详细统计：
+- GitLab 项目总数 / 新建项目数 / 已存在项目数
+- 新建用户数 / 跳过用户数
+- 同步成员关系数 / 同步管理员关系数
+- 失败项目及原因
+- 被移除的管理员清单（移除审计）
+
+#### 安全说明
+
+- 新同步用户使用系统设置中的统一默认密码
+- 已有用户不会被修改密码
+- 某项目同步失败不影响其他项目
+- 邮箱歧义（多用户同邮箱）会跳过并记录提示
 
 ### Webhook 项目匹配优先级
 
@@ -708,10 +820,12 @@ GitLab 事件 → 过滤事件/文件 → AI 审查 → 回写 GitLab → 发送
 - **个人详情**：评分趋势折线图、工作总结、提交记录明细
 - **数据筛选**：按日期/月份筛选、排序（评分/代码量/提交数）
 - **权限控制**：
-  - 系统管理员：可查看所有人员详情
-  - 项目管理员：管理项目的人员可查看详情，其他项目人员置灰不可查看
-  - 判断依据：人员 `projects_involved`（涉及项目）是否包含管理员管理的项目
-  - 普通用户：仅可查看自己的详情
+  - **列表/团队概览**：全员可见（移除角色裁剪）
+  - **人员详情**：
+    - 系统管理员：可查看所有人员详情
+    - 项目管理员：可查看自己管理项目内的成员详情
+    - 无角色普通用户：仅可查看自己的详情
+  - **判断依据**：使用 `can_view_person_detail()` 权限函数，基于项目成员关系判断
 
 ---
 
@@ -726,6 +840,12 @@ pytest tests/test_services/test_webhook_worker.py tests/test_services/test_notif
 
 # 运行人员能效相关测试
 pytest tests/test_models/test_employee_efficiency.py tests/test_models/test_employee_efficiency_monthly.py tests/test_services/test_efficiency_aggregator.py tests/test_services/test_efficiency_monthly_aggregator.py tests/test_services/test_efficiency_llm.py tests/test_api/test_efficiency.py tests/test_api/test_efficiency_monthly.py -q
+
+# 运行权限相关测试
+pytest tests/test_api/test_roles_permissions.py tests/test_api/test_personal_visibility_permissions.py -q
+
+# 运行 GitLab 同步相关测试
+pytest tests/test_api/test_projects_sync.py tests/test_services/test_gitlab_client.py -q
 ```
 
 ---

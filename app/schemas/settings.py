@@ -38,6 +38,11 @@ class SettingsBase(BaseModel):
     # 全局调度开关
     scheduler_enabled: bool = True
 
+    # GitLab 项目及成员同步配置
+    gitlab_sync_enabled: bool = True
+    gitlab_sync_schedule_time: str = Field(default="03:00")
+    gitlab_sync_default_password: Optional[str] = None
+
     # 外部 API 配置
     external_api_key: Optional[str] = None
 
@@ -98,6 +103,14 @@ class SettingsBase(BaseModel):
             raise ValueError(f'每周调度时间格式错误: {v}，需要 HH:MM 格式')
         return v
 
+    @field_validator('gitlab_sync_schedule_time')
+    @classmethod
+    def validate_gitlab_sync_schedule_time(cls, v: str) -> str:
+        """验证 GitLab 同步时间格式"""
+        if not re.match(r'^\d{2}:\d{2}$', v):
+            raise ValueError(f'GitLab 同步时间格式错误: {v}，需要 HH:MM 格式')
+        return v
+
 
 class SettingsCreate(SettingsBase):
     pass
@@ -128,6 +141,10 @@ class SettingsUpdate(BaseModel):
     weekly_review_days: Optional[int] = None
     weekly_enabled: Optional[bool] = None
     scheduler_enabled: Optional[bool] = None
+    # GitLab 项目及成员同步配置
+    gitlab_sync_enabled: Optional[bool] = None
+    gitlab_sync_schedule_time: Optional[str] = None
+    gitlab_sync_default_password: Optional[str] = None
     # 外部 API 配置
     external_api_key: Optional[str] = None
 
@@ -153,6 +170,15 @@ class SettingsUpdate(BaseModel):
     wecom_webhook_url: Optional[str] = None
     feishu_enabled: Optional[bool] = None
     feishu_webhook_url: Optional[str] = None
+
+    @field_validator('gitlab_sync_schedule_time')
+    @classmethod
+    def validate_gitlab_sync_schedule_time(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        if not re.match(r'^\d{2}:\d{2}$', v):
+            raise ValueError(f'GitLab 同步时间格式错误: {v}，需要 HH:MM 格式')
+        return v
 
 
 class GitlabTestRequest(BaseModel):

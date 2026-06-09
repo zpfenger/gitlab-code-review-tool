@@ -213,7 +213,9 @@
 <script>
 // 角色权限变量（由后端传递）
 const currentUserRoles = {{ current_user_roles | tojson }};
-const canDelete = currentUserRoles.includes('system_admin') || currentUserRoles.includes('project_admin');
+const writableProjectNames = {{ writable_project_names | tojson }};
+const isSystemAdmin = currentUserRoles.includes('system_admin');
+const isProjectAdmin = currentUserRoles.includes('project_admin');
 
 let currentType = 'mr';
 let currentPage = 1;
@@ -288,7 +290,7 @@ function renderTable(items) {
                         <i class="bi bi-eye"></i>
                     </button>
                     ${item.url ? `<a href="${item.url}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm" title="打开链接"><i class="bi bi-box-arrow-up-right"></i></a>` : ''}
-                    ${canDelete ? `<button class="btn btn-danger btn-sm" onclick="deleteReview(${item.id})" title="删除"><i class="bi bi-trash"></i></button>` : ''}
+                    ${(isSystemAdmin || (isProjectAdmin && writableProjectNames.includes(item.project_name))) ? `<button class="btn btn-danger btn-sm" onclick="deleteReview(${item.id})" title="删除"><i class="bi bi-trash"></i></button>` : ''}
                 </div>
             </td>
         </tr>`;

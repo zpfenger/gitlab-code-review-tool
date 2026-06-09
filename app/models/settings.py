@@ -57,6 +57,11 @@ class Settings(BaseModel):
     max_commits_per_run = Column(Integer, default=100, comment="单次最大处理提交数")
     diff_max_lines = Column(Integer, default=10000, comment="单次 diff 最大行数限制")
 
+    # GitLab 同步配置
+    gitlab_sync_enabled = Column(Boolean, default=True, nullable=True, comment="是否启用 GitLab 项目及成员自动同步")
+    gitlab_sync_schedule_time = Column(String(5), nullable=True, default="03:00", comment="每日同步时间 (HH:MM)")
+    gitlab_sync_default_password = Column(String(500), nullable=True, comment="新建同步用户的初始密码（加密存储）")
+
     # 报告配置
     report_output_dir = Column(String(500), nullable=False, default="./data/reports", comment="报告输出目录")
 

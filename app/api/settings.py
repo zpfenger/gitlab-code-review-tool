@@ -13,7 +13,7 @@ from app.schemas.response import ApiResponse
 from app.services.gitlab_client import GitLabClient
 from app.services.svn_uploader import SVNUploader
 from app.security import security_service
-from app.api.users import require_system_admin
+from app.api.deps import require_system_admin
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -44,6 +44,9 @@ async def get_settings(
     # 脱敏显示敏感字段
     response_data = SettingsResponse.model_validate(settings)
     response_data.external_api_key = _mask_api_key(settings.external_api_key)
+    response_data.gitlab_sync_default_password = (
+        "****" if settings.gitlab_sync_default_password else None
+    )
 
     return ApiResponse(success=True, data=response_data)
 
@@ -114,7 +117,7 @@ async def update_settings(
     # 敏感字段：前端传空字符串或 null 时保留原值，有值时加密存储
     sensitive_fields = ['global_gitlab_token', 'llm_api_key', 'global_svn_password',
                         'dingtalk_webhook_url', 'wecom_webhook_url', 'feishu_webhook_url',
-                        'external_api_key']
+                        'external_api_key', 'gitlab_sync_default_password']
     update_data = data.model_dump(exclude_unset=True)
 
     for field in sensitive_fields:
@@ -143,20 +146,23 @@ async def update_settings(
     # 响应中脱敏显示 API Key
     response_data = SettingsResponse.model_validate(settings)
     response_data.external_api_key = _mask_api_key(settings.external_api_key)
+    response_data.gitlab_sync_default_password = (
+        "****" if settings.gitlab_sync_default_password else None
+    )
     return ApiResponse(success=True, data=response_data, message="设置已更新")
 
 
 def _refresh_scheduler(settings: Settings):
     """根据最新设置刷新调度器中的任务"""
     try:
-        from app.main import scheduler, run_scheduled_task
+        from app.main import scheduler, run_scheduled_task, _run_gitlab_sync_scheduled
         if not scheduler or not settings.scheduler_enabled:
             return
 
         # 移除所有旧的调度任务
         if scheduler.scheduler:
             for job in scheduler.scheduler.get_jobs():
-                if job.id.startswith('daily_review') or job.id.startswith('weekly_review'):
+                if job.id.startswith('daily_review') or job.id.startswith('weekly_review') or job.id.startswith('gitlab_sync'):
                     scheduler.scheduler.remove_job(job.id)
 
         # 注册每日任务
@@ -178,6 +184,14 @@ def _refresh_scheduler(settings: Settings):
                 time=settings.weekly_schedule_time,
                 callback=lambda: run_scheduled_task('weekly'),
                 job_id='weekly_review'
+            )
+
+        # 注册 GitLab 同步任务
+        if settings.gitlab_sync_enabled and settings.gitlab_sync_schedule_time:
+            scheduler.setup_gitlab_sync_task(
+                time=settings.gitlab_sync_schedule_time,
+                callback=lambda: _run_gitlab_sync_scheduled(),
+                job_id='gitlab_sync'
             )
 
         from loguru import logger

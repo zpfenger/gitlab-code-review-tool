@@ -8,7 +8,7 @@ from app.models import User
 from app.models.task_log import TaskLog
 from app.models.project import Project
 from app.schemas.response import ApiResponse, PaginatedResponse
-from app.api.users import get_current_user_full
+from app.api.deps import get_current_user_full
 from app.api.projects import _filter_projects_by_permission
 
 router = APIRouter(prefix="/api/logs", tags=["logs"])

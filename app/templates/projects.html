@@ -87,7 +87,9 @@
                     <tr>
                         <th style="width: 40px;"><input type="checkbox" id="selectAll" onclick="toggleSelectAll()"></th>
                         <th style="width: 50px;">序号</th>
+                        {% if show_project_actions %}
                         <th style="width: 80px;">操作</th>
+                        {% endif %}
                         <th>项目名称</th>
                         <th>项目 ID</th>
                         <th>目标分支</th>
@@ -100,11 +102,12 @@
                     <tr class="project-row" data-name="{{ project.name }}" data-status="{% if project.is_active %}active{% else %}inactive{% endif %}">
                         <td><input type="checkbox" class="row-checkbox" value="{{ project.id }}"></td>
                         <td class="row-index">{{ loop.index }}</td>
+                        {% if show_project_actions %}
                         <td>
+                            {% if project.can_write %}
                             <div class="operation-group">
                                 <i class="bi bi-gear operation-trigger"></i>
                                 <div class="operation-menu">
-                                    {% if 'system_admin' in current_user_roles or 'project_admin' in current_user_roles %}
                                     <button class="btn btn-sm btn-secondary" onclick="openEditModal({{ project.id }})">
                                         <i class="bi bi-pencil"></i> 编辑
                                     </button>
@@ -114,7 +117,6 @@
                                     <button class="btn btn-sm btn-primary" onclick="runTask({{ project.id }})">
                                         <i class="bi bi-play-fill"></i> 执行
                                     </button>
-                                    {% endif %}
                                     {% if 'system_admin' in current_user_roles %}
                                     <button class="btn btn-sm btn-danger" onclick="deleteProject({{ project.id }})">
                                         <i class="bi bi-trash"></i> 删除
@@ -122,7 +124,11 @@
                                     {% endif %}
                                 </div>
                             </div>
+                            {% else %}
+                            <span class="text-muted">-</span>
+                            {% endif %}
                         </td>
+                        {% endif %}
                         <td style="text-align: left;">
                             <strong>{{ project.name }}</strong>
                             {% if project.description %}
@@ -155,7 +161,7 @@
                     </tr>
                     {% endfor %}
                     <tr id="projectsEmptyRow" style="display: none;">
-                        <td colspan="8" style="text-align: center; color: var(--color-slate-500); padding: var(--space-6);">
+                        <td colspan="{{ 8 if show_project_actions else 7 }}" style="text-align: center; color: var(--color-slate-500); padding: var(--space-6);">
                             暂无匹配项目
                         </td>
                     </tr>

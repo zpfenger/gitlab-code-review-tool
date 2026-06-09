@@ -44,6 +44,7 @@ def init_db():
     _migrate_schedule_data()
     _migrate_webhook_unique_indexes()
     _init_system_roles()
+    _migrate_remove_project_member_roles()
 
 
 def _migrate_schedule_data():
@@ -146,11 +147,6 @@ def _init_system_roles():
                 'description': '项目管理员 - 可管理授权的项目',
                 'is_system_role': True,
             },
-            {
-                'name': 'project_member',
-                'description': '项目成员 - 只能查看授权的项目',
-                'is_system_role': True,
-            },
         ]
 
         # 创建内置角色（如果不存在）
@@ -208,6 +204,27 @@ def _init_system_roles():
 
     except Exception as e:
         logger.error(f"Error initializing system roles: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
+
+def _migrate_remove_project_member_roles():
+    """DML 迁移：清理 user_roles 中关联到 project_member 的记录（幂等）"""
+    from app.models.user import Role, user_roles
+    insp = inspect(engine)
+    if not insp.has_table('roles') or not insp.has_table('user_roles'):
+        return
+    db = SessionLocal()
+    try:
+        pm_role = db.query(Role).filter(Role.name == 'project_member').first()
+        if pm_role:
+            stmt = user_roles.delete().where(user_roles.c.role_id == pm_role.id)
+            db.execute(stmt)
+            db.commit()
+            logger.info("已清理 user_roles 中的 project_member 关联")
+    except Exception as e:
+        logger.warning(f"清理 project_member 角色关联失败（可忽略）: {e}")
         db.rollback()
     finally:
         db.close()

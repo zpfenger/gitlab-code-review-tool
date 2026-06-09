@@ -1,6 +1,5 @@
 /* GitLab Code Review Tool - Design System Styles */
 /* Based on DESIGN.md specification */
-
 :root {
     /* Color System - Primary */
     --color-primary: #1e40af;
@@ -758,6 +757,7 @@ input[type="password"].form-input {
     transform: translateX(0);
     opacity: 1;
     visibility: visible;
+	z-index:99999
 }
 
 .modal-header {
@@ -987,7 +987,7 @@ code {
 }
 
 .text-truncate-sm {
-    max-width: 120px;
+    max-width: 300px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1297,7 +1297,7 @@ code {
 .app-table-list th {
     background: var(--color-slate-50);
     padding: var(--space-3) var(--space-4);
-    text-align: left;
+    text-align: center;
     font-weight: 600;
     color: var(--color-slate-600);
     border-bottom: 1px solid var(--color-slate-200);

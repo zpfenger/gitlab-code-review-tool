@@ -12,7 +12,7 @@ from app.database import get_db
 from app.models import User, Role, Project
 from app.models.user import project_admins, project_members
 from app.security import security_service
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, get_current_user_full, require_system_admin, require_project_admin
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 
@@ -46,6 +46,10 @@ class UserUpdate(BaseModel):
 
 class PasswordChangeAdmin(BaseModel):
     new_password: str
+
+
+class UserBatchDelete(BaseModel):
+    user_ids: List[int]
 
 
 class UserResponse(BaseModel):
@@ -97,48 +101,8 @@ class UserDetailResponse(BaseModel):
         )
 
 
-# ==================== 依赖：获取当前用户 ====================
-
-def get_current_user_full(
-    request: Request,
-    db: Session = Depends(get_db),
-) -> User:
-    """获取当前登录用户的完整 User 对象"""
-    username = request.session.get("user")
-    if not username:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated"
-        )
-    
-    user = db.query(User).filter(User.username == username).first()
-    if not user or not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User not found or inactive"
-        )
-    return user
-
-
-def require_system_admin(current_user: User = Depends(get_current_user_full)):
-    """要求是系统管理员"""
-    if not current_user.is_system_admin():
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="需要系统管理员权限"
-        )
-    return current_user
-
-
-def require_project_admin(current_user: User = Depends(get_current_user_full)):
-    """要求是项目管理员或系统管理员"""
-    if not (current_user.is_system_admin() or current_user.is_project_admin()):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="需要项目管理员或系统管理员权限"
-        )
-    return current_user
-
+# get_current_user_full, require_system_admin, require_project_admin 已迁移至 app.api.deps
+# 通过顶部 import 重导出，保持向后兼容
 
 # ==================== 用户 CRUD ====================
 
@@ -177,6 +141,101 @@ async def list_users(
         )
         for u in users
     ]
+
+
+def _delete_user_with_relations(db: Session, user: User) -> None:
+    """删除用户及账号权限关联。"""
+    db.execute(
+        project_admins.update()
+        .where(project_admins.c.assigned_by == user.id)
+        .values(assigned_by=None)
+    )
+    db.execute(
+        project_members.update()
+        .where(project_members.c.assigned_by == user.id)
+        .values(assigned_by=None)
+    )
+    db.execute(project_admins.delete().where(project_admins.c.user_id == user.id))
+    db.execute(project_members.delete().where(project_members.c.user_id == user.id))
+    db.delete(user)
+
+
+@router.post("/sync-gitlab")
+async def sync_gitlab_accounts(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_system_admin),
+):
+    """手动同步 GitLab 账号（仅系统管理员）"""
+    from app.services.gitlab_sync_service import run_gitlab_sync
+
+    try:
+        result = run_gitlab_sync(db)
+    except ValueError as exc:
+        return {"success": False, "message": str(exc)}
+
+    return {
+        "success": True,
+        "message": "GitLab 项目、账号及成员关系同步完成",
+        "data": result.to_dict(),
+    }
+
+
+@router.post("/batch-delete")
+async def batch_delete_users(
+    data: UserBatchDelete,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_system_admin),
+):
+    """批量删除用户（仅系统管理员）"""
+    user_ids = []
+    seen = set()
+    for user_id in data.user_ids:
+        if user_id not in seen:
+            seen.add(user_id)
+            user_ids.append(user_id)
+
+    if not user_ids:
+        raise HTTPException(status_code=400, detail="请选择要删除的账号")
+
+    deleted = []
+    skipped = []
+    for user_id in user_ids:
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            skipped.append({"id": user_id, "username": "", "reason": "用户不存在"})
+            continue
+
+        if user.id == current_user.id:
+            skipped.append({
+                "id": user.id,
+                "username": user.username,
+                "reason": "不能删除自己的账号",
+            })
+            continue
+
+        if user.is_system_admin():
+            skipped.append({
+                "id": user.id,
+                "username": user.username,
+                "reason": "不能删除系统管理员账号",
+            })
+            continue
+
+        deleted.append({"id": user.id, "username": user.username})
+        _delete_user_with_relations(db, user)
+
+    db.commit()
+
+    deleted_count = len(deleted)
+    skipped_count = len(skipped)
+    return {
+        "success": True,
+        "message": f"已删除 {deleted_count} 个账号" + (f"，跳过 {skipped_count} 个" if skipped_count else ""),
+        "deleted_count": deleted_count,
+        "skipped_count": skipped_count,
+        "deleted": deleted,
+        "skipped": skipped,
+    }
 
 
 @router.get("/{user_id}", response_model=UserDetailResponse)
@@ -296,8 +355,8 @@ async def delete_user(
     # 不能删除自己
     if user.id == current_user.id:
         raise HTTPException(status_code=400, detail="不能删除自己的账号")
-    
-    db.delete(user)
+
+    _delete_user_with_relations(db, user)
     db.commit()
     
     return {"success": True, "message": "用户已删除"}
@@ -440,35 +499,11 @@ async def assign_member_projects(
                     detail=f"您没有项目 {pid} 的管理权限"
                 )
     
-    # 必须有项目成员角色
-    member_role = db.query(Role).filter(Role.name == Role.PROJECT_MEMBER).first()
-    if member_role not in user.roles:
-        user.roles.append(member_role)
-    
-    # 清除旧的项目成员关联
-    stmt = project_members.delete().where(project_members.c.user_id == user_id)
-    db.execute(stmt)
-    
-    # 添加新的项目关联
-    from datetime import datetime
-    for pid in project_ids:
-        stmt = project_members.insert().values(
-            project_id=pid,
-            user_id=user_id,
-            assigned_by=current_user.id,
-            assigned_at=int(datetime.now().timestamp())
-        )
-        db.execute(stmt)
-    
-    db.commit()
-    
-    # 返回更新后的项目列表
-    assigned_projects = db.query(Project).filter(Project.id.in_(project_ids)).all() if project_ids else []
-    return {
-        "success": True,
-        "message": "项目成员权限已更新",
-        "member_projects": [{"id": p.id, "name": p.name} for p in assigned_projects],
-    }
+    # 项目成员由 GitLab 同步维护，不再支持手动分配
+    raise HTTPException(
+        status_code=400,
+        detail="项目成员由 GitLab 同步维护，不支持手动分配。请通过同步 GitLab 项目及成员功能管理。"
+    )
 
 
 # ==================== 当前用户信息 ====================
@@ -496,7 +531,6 @@ async def get_my_profile(
         "roles": [r.name for r in user.roles],
         "is_system_admin": user.is_system_admin(),
         "is_project_admin": user.is_project_admin(),
-        "is_project_member": user.is_project_member(),
     }
 
 

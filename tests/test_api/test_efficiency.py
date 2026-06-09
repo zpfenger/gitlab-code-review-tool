@@ -15,7 +15,8 @@ from app.database import Base, get_db
 from app.api.efficiency import router as efficiency_router
 from app.api.users import get_current_user_full
 from app.models.employee_efficiency import EmployeeEfficiencyDaily
-from app.models.user import User, Role
+from app.models.project import Project
+from app.models.user import User, Role, project_admins, project_members
 from app.security import security_service
 
 
@@ -97,7 +98,8 @@ def admin_user(db_session):
 
 @pytest.fixture
 def member_user(db_session):
-    return _make_user(db_session, "member", "member@x.com", ["project_member"])
+    """无角色普通用户（project_member 角色已废弃）"""
+    return _make_user(db_session, "member", "member@x.com", [])
 
 
 @pytest.fixture
@@ -210,9 +212,9 @@ def test_recompute_requires_admin(client, db_session, login_as_member):
     assert resp.status_code == 403
 
 
-def test_list_member_sees_only_self(client, db_session, login_as_member,
-                                    member_user):
-    """项目成员只能看到与自己 email 一致的数据"""
+def test_list_normal_user_sees_all(client, db_session, login_as_member,
+                                   member_user):
+    """无角色普通用户也能看到全员列表（列表全员可见）"""
     yesterday = date.today() - timedelta(days=1)
     _seed(db_session, member_user.email, "Self", yesterday)
     _seed(db_session, "other@x.com", "Other", yesterday)
@@ -221,7 +223,74 @@ def test_list_member_sees_only_self(client, db_session, login_as_member,
     items = resp.json()["data"]["items"]
     emails = [i["author_email"] for i in items]
     assert member_user.email in emails
-    assert "other@x.com" not in emails
+    assert "other@x.com" in emails  # 列表全员可见
+
+
+def test_list_project_admin_sees_all_people_not_only_project(
+    client, db_session, app
+):
+    """项目管理员能看到全员能效列表，详情再做权限限制"""
+    role = _ensure_role(db_session, "project_admin")
+    admin = _make_user(db_session, "pa", "pa@x.com", [])
+    admin.roles.append(role)
+    project = Project(name="proj-a", project_id=100, is_active=True)
+    db_session.add(project)
+    db_session.commit()
+    db_session.refresh(project)
+    db_session.execute(
+        project_admins.insert().values(project_id=project.id, user_id=admin.id)
+    )
+    db_session.commit()
+
+    yesterday = date.today() - timedelta(days=1)
+    _seed(db_session, "in@x.com", "In", yesterday, projects=["proj-a"])
+    _seed(db_session, "out@x.com", "Out", yesterday, projects=["proj-b"])
+
+    app.dependency_overrides[get_current_user_full] = lambda: admin
+    resp = client.get("/api/efficiency/list")
+    app.dependency_overrides.pop(get_current_user_full, None)
+
+    assert resp.status_code == 200
+    emails = {i["author_email"] for i in resp.json()["data"]["items"]}
+    assert emails == {"in@x.com", "out@x.com"}
+
+
+def test_project_admin_detail_uses_project_member_relation(
+    client, db_session, app
+):
+    """项目管理员可打开自己项目成员详情，即使能效记录项目名不匹配"""
+    role = _ensure_role(db_session, "project_admin")
+    admin = _make_user(db_session, "pa2", "pa2@x.com", [])
+    admin.roles.append(role)
+    target = _make_user(db_session, "member2", "member2@x.com", [])
+    project = Project(name="proj-a", project_id=101, is_active=True)
+    db_session.add(project)
+    db_session.commit()
+    db_session.refresh(project)
+    db_session.execute(
+        project_admins.insert().values(project_id=project.id, user_id=admin.id)
+    )
+    db_session.execute(
+        project_members.insert().values(project_id=project.id, user_id=target.id)
+    )
+    db_session.commit()
+    yesterday = date.today() - timedelta(days=1)
+    _seed(
+        db_session,
+        target.email,
+        "Member2",
+        yesterday,
+        projects=["unrelated-project"],
+    )
+
+    app.dependency_overrides[get_current_user_full] = lambda: admin
+    resp = client.get(
+        f"/api/efficiency/detail?email={target.email}&date={yesterday.isoformat()}"
+    )
+    app.dependency_overrides.pop(get_current_user_full, None)
+
+    assert resp.status_code == 200
+    assert resp.json()["data"]["summary"]["author_email"] == target.email
 
 
 # ── 区间聚合测试 ──────────────────────────

@@ -4,7 +4,40 @@
 
 当前系统已有 `system_admin`、`project_admin`、`project_member` 三个系统角色，并通过 `project_admins`、`project_members` 两张项目关系表控制项目范围。新的目标是去掉“项目成员”作为可分配角色，让普通用户在没有任何角色的情况下也能按 GitLab 项目成员关系查看数据，同时让项目成员关系由 GitLab 自动同步维护。
 
-本设计采用“权限规则集中化 + GitLab 成员覆盖同步”的方案。现有“同步 GitLab 项目”功能继续作为入口，扩展为同步项目和成员关系。
+本设计采用”权限规则集中化 + GitLab 成员覆盖同步”的方案。现有”同步 GitLab 项目”功能继续作为入口，扩展为同步项目和成员关系。
+
+### 权限判断决策树
+
+```
+用户请求 → get_current_user_full(session.username)
+    │
+    ├─ is_system_admin()? ─── YES → 全部可读可写，跳过所有过滤
+    │
+    ├─ is_project_admin()? ─── YES → get_readable_project_ids() = admins ∪ members
+    │                                 get_writable_project_ids() = admins 仅
+    │
+    └─ 无角色(普通用户) ──── get_readable_project_ids() = project_members 仅
+                              get_writable_project_ids() = ∅ (无写权限)
+                              can_view_person_detail() = 仅 target == self
+
+    ※ 关键变化：删除 project_member 角色后，原来”is_project_member()→查 project_members 表”
+      的路径改为”无条件查 project_members 表”，不再依赖角色作为门控条件。
+```
+
+### 角色映射
+
+```
+GitLab 角色           →  project_members  →  project_admins  →  系统角色
+──────────────────────────────────────────────────────────────────────────
+Owner(直接成员)        ✅ 写入              ✅ 写入             追加 project_admin
+Maintainer(直接成员)   ✅ 写入              ✅ 写入             追加 project_admin
+Owner(继承/Group)      ✅ 写入              ❌ 不写入           不追加
+Maintainer(继承)       ✅ 写入              ❌ 不写入           不追加
+Developer              ✅ 写入              ❌ 不写入           不追加
+Reporter               ✅ 写入              ❌ 不写入           不追加
+Guest                  ✅ 写入              ❌ 不写入           不追加
+※ 已有 system_admin → 不变更系统角色，仅写项目关系
+```
 
 ## 目标
 
@@ -58,34 +91,83 @@
 5. 对每个项目调用 GitLab 项目成员接口，建议使用 `members/all`，包含直接成员和继承自 Group 的成员。
 6. 成员拉取和用户匹配成功后，在同一事务内覆盖该项目关系。
 
+```
+sync-gitlab 触发(手动/定时)
+    │
+    ├─ 1. 读取全局 GitLab URL + Token
+    ├─ 2. GitLabClient.list_accessible_projects()
+    ├─ 3. 创建本地缺失项目
+    │
+    └─ 4. 对每个项目(Per-project 事务):
+         │
+         ├─ 4a. GitLabClient.get_project_members(project_id)  ← 新增方法
+         │      └─ members/all + 分页；区分直接/继承成员
+         │
+         ├─ 4b. 匹配本地用户(一次性 dict 索引，非 N+1):
+         │      ├─ 按 email → 本地 email 匹配(歧义→跳过+记录)
+         │      ├─ 按 username → 本地 username 兜底
+         │      ├─ 不存在→创建(默认密码)
+         │      └─ Owner/Maintainer(直接): 写 admins + members + project_admin 角色
+         │          Owner/Maintainer(继承): 仅写 members(只读)
+         │          Developer/Reporter/Guest: 仅写 members
+         │
+         ├─ 4c. 覆盖保护:
+         │      ├─ 拉取失败? → 不清空旧关系，记录失败
+         │      └─ 拉取成功且非空? → 记录被移除的非系统管理员 → 清空 → 重写
+         │
+         └─ 4d. commit(仅本项目)
+
+    └─ 5. 返回同步结果(9 项计数 + 移除清单 + 失败原因)
+```
+
+Per-project 事务说明：
+
+- 每个项目的成员覆盖使用独立事务，单项目失败只回滚该项目并记录，不影响其他项目。
+- 用户创建与项目关系覆盖分离：新用户在项目关系写入前单独提交，项目回滚不会连带删除已创建的用户。
+- 避免全局单事务：所有项目在一个事务中，任一失败导致全量回滚，且大事务长时间锁表。
+
 覆盖规则：
 
+- 如果某项目成员拉取失败，不清空该项目旧关系，只记录失败原因。
+- 如果拉取成功但返回空成员列表，不清空旧关系（防止 API 异常导致误清空）。
+- 拉取成功且非空时，记录即将被移除的非系统管理员关系（移除审计清单），然后清空并重写。
 - 清空该项目当前 `project_members`。
 - 清空该项目当前非系统管理员的 `project_admins`。
 - 重新写入 GitLab 当前成员关系。
-- 如果某项目成员拉取失败，不清空该项目旧关系，只记录失败原因。
+- 同步结果中返回"被移除管理员清单"，便于人工审查和恢复。
 
 GitLab 角色映射：
 
-- Owner / Maintainer：
+- Owner / Maintainer（直接成员）：
   - 写入 `project_members`。
   - 写入 `project_admins`。
   - 追加 `project_admin` 角色。
   - 如果用户已经是 `system_admin`，不变更其系统角色，只写项目关系。
-- Developer / Reporter / Guest：
+- Owner / Maintainer（继承自 Group）：
+  - 写入 `project_members`（只读可见）。
+  - 不写入 `project_admins`（不给管理权）。
+  - 不追加系统角色。
+  - 理由：Group Owner 可能管理上百个子项目，自动映射为所有子项目的 project_admin 会导致关系爆炸且语义错配。
+- Developer / Reporter / Guest（无论直接或继承）：
   - 写入 `project_members`。
   - 不追加任何系统角色。
 
+区分直接/继承成员的方式：调用 GitLab `members/all` 接口时，响应中的 `source` 字段标识来源（`project` = 直接，`group` = 继承）。也可通过对比 `members`（仅直接）和 `members/all`（含继承）的差集来判断。
+
 用户匹配和创建：
 
+- 同步前一次性加载本地用户到 dict 索引（按 email 和 username），避免逐成员查库的 N+1 性能问题。
 - 已存在用户优先按邮箱匹配；邮箱缺失或未匹配时按 GitLab username 兜底。
+- **邮箱歧义处理**：如果本地多个用户有相同邮箱，不静默取第一个（可能写给错误的人导致越权），而是跳过该成员并在同步结果中记录”歧义匹配”提示。
 - 已存在用户不修改密码。
 - 已存在用户的昵称、邮箱等非密码字段建议只在为空时补齐，避免覆盖系统内人工维护的信息。
 - 不存在用户时自动创建账号。
 - 新用户用户名使用 GitLab username；若冲突，追加 GitLab user id。
 - 新用户邮箱、昵称来自 GitLab。
-- 新用户初始密码使用系统设置中的“GitLab 同步新用户默认密码”。
+- 新用户初始密码使用系统设置中的”GitLab 同步新用户默认密码”。
 - 如果默认密码未配置，则跳过自动创建该用户，并在同步结果中提示。
+
+> **已知安全风险（知情接受）**：新创建的用户使用统一默认密码且可立即登录。任何知道默认密码的人都能以这些账号身份登录。建议后续考虑：新账号默认 `is_active=False` 需管理员激活，或标记 `must_change_password` 强制首次登录改密。
 
 同步结果应返回：
 
@@ -94,10 +176,11 @@ GitLab 角色映射：
 - 已存在项目数。
 - 项目同步失败数。
 - 新建用户数。
-- 跳过用户数。
+- 跳过用户数（含歧义匹配跳过）。
 - 同步普通成员关系数。
 - 同步项目管理员关系数。
 - 失败项目和失败成员原因。
+- 被移除的非系统管理员清单（移除审计）。
 
 ## 自动同步设置
 
@@ -112,6 +195,8 @@ GitLab 角色映射：
 - 应用启动时，如果 `scheduler_enabled` 和 `gitlab_sync_enabled` 都开启，注册每日任务 `gitlab_project_member_sync`。
 - 系统设置保存后刷新调度器，同时刷新该 GitLab 同步任务。
 - 手动同步和自动同步复用同一个服务方法。
+- **调度器扩展**：当前 `_refresh_scheduler`（`app/api/settings.py`）只处理 `daily_review*` 和 `weekly_review*` 前缀的任务，需要扩展支持 `gitlab_sync` 前缀的任务注册和刷新。
+- **线程隔离**：GitLab 同步任务应使用独立执行线程，避免与每日代码审查任务在 APScheduler 线程池中互相阻塞。功能不互相影响 ≠ 调度线程不互相阻塞。
 - 自动同步只处理项目、用户、`project_members`、`project_admins`、必要角色，不改已有用户密码。
 - 自动同步失败只记录日志，不影响每日代码审查、Webhook、人员能效等任务。
 - 自动同步结果建议写入任务日志，任务类型使用 `gitlab_sync`；若不写任务日志，也必须写入应用日志。
@@ -180,11 +265,15 @@ GitLab 角色映射：
 - 项目管理员：看自己可读项目的全部报告；只可删除自己管理项目的报告。
 - 普通用户：只看自己的报告。判断规则是邮箱优先，历史报告无邮箱时用用户名、昵称或文件名兜底。
 
+> **⚠️ 新功能（非微调）**：当前 `reports.py` 按"可读项目名"过滤报告目录，没有"按作者过滤"逻辑。实现普通用户"只看自己的报告"需要新增作者匹配过滤，涉及历史报告无 email 的兜底匹配（用文件名/昵称），误判风险较高。这不是修改既有行为，而是新增过滤能力。
+
 ### Webhook 审查
 
 - 系统管理员：看全部 Webhook 审查，可删除全部记录。
 - 项目管理员：看自己可读项目的全部 Webhook 审查；只可删除自己管理项目的记录。
 - 普通用户：只看提交者包含自己的记录。判断规则邮箱优先；当前 Webhook 记录只有 `author` 时用用户名或昵称兜底，后续建议补充 `author_email` 字段。
+
+> **⚠️ 新功能（非微调）**：当前 `webhook_reviews.py` 只有"项目级"过滤（看可读项目的全部记录），没有"普通用户只看含自己提交的记录"逻辑。需要新增按提交者身份过滤的能力。
 
 ### 人员能效
 
@@ -192,6 +281,10 @@ GitLab 角色映射：
 - 项目管理员：看全员列表和团队概览；只能打开自己及自己可读项目成员的人员明细；点其他人时前端提示无权查看，后端返回 403。
 - 普通用户：看全员列表和团队概览；只能打开自己的人员明细；点其他人时前端提示无权查看，后端返回 403。
 - 补算仍只允许系统管理员。
+
+> **列表/详情边界**：`/list`、`/monthly/list`、团队概览为"列表"类端点，移除 `_restrict_query_by_user` 角色裁剪，改为全员可见。`/detail`、`/monthly/detail` 为"详情"类端点，由 `can_view_person_detail` 把关。
+>
+> **⚠️ 守卫重写（P0）**：当前 `efficiency.py` 的详情 403 守卫建立在 `is_project_member()` 之上（`if is_project_member() and not is_project_admin(): 校验 email`）。删除 `project_member` 角色后，无角色用户两个 `is_*` 都 False，直接跳过整个 403 检查，能看任何人详情。必须重写为：`if not is_system_admin(): 校验 target_email == self.email or can_view_person_detail()`。
 
 ### 任务日志
 
@@ -206,6 +299,8 @@ GitLab 角色映射：
 - Webhook 审查优先使用提交者邮箱；当前历史数据只有 `author` 时，用用户名或昵称兜底。
 - 审查报告优先使用报告元数据中的邮箱；历史报告没有邮箱时，用用户名、昵称或文件名兜底。
 
+> **⚠️ 注意**：审查报告和 Webhook 审查的”普通用户只看自己”是新增过滤能力，当前代码中不存在（详见”业务数据可见性”章节标注）。身份匹配的兜底规则（文件名/昵称）在历史数据无 email 时误判率较高，建议优先补充 `author_email` 字段。
+
 推荐后续补充：
 
 - Webhook 审查表新增 `author_email` 字段。
@@ -213,7 +308,9 @@ GitLab 角色映射：
 
 ## 后端设计要点
 
-建议增加权限 helper，集中表达能力：
+### 权限 helper 模块
+
+新建 `app/core/permissions.py`，放置 6 个纯权限计算函数（输入 user+db，输出 project_ids 或 bool）：
 
 - `get_readable_project_ids(user, db)`：用户可读项目。
 - `get_writable_project_ids(user, db)`：用户可写项目。
@@ -222,15 +319,34 @@ GitLab 角色映射：
 - `can_view_person_detail(user, target_email, db)`：人员能效详情权限。
 - `is_self_identity(user, email_or_author)`：邮箱优先的本人判断。
 
+> **模块归属理由**：权限计算是纯函数（无 HTTP 依赖），与 `require_system_admin` 等 HTTP 依赖（抛 403）是两种职责。放在 `app/core/permissions.py` 后，任意业务模块都能引用而不产生对 `users.py` 的反向依赖，也解开了当前 `reports.py→projects.py→users.py` 的循环依赖链。
+
+### HTTP 权限依赖
+
+将现有 `require_system_admin`、`require_project_admin`、`get_current_user_full` 从 `app/api/users.py` 迁移到 `app/api/deps.py`（FastAPI 标准依赖注入模块）。
+
 所有项目、报告、Webhook、任务、能效接口使用这些 helper，不再散落判断 `is_project_member()`。
+
+### 后端端点处置
+
+手动成员管理的后端端点需同步关闭，不能只隐藏前端：
+
+- `POST /{project_id}/members`（添加成员）：成员分支返回提示"项目成员由 GitLab 同步维护"，不再写入 `project_members` 或追加 `project_member` 角色。管理员分支保留。
+- `POST /{user_id}/projects/member`（分配成员项目）：成员分支返回提示，不再写入或追加角色。管理员分支（`assign_admin_projects`）保留作为系统管理员兜底。
+- `DELETE /{project_id}/members/{user_id}`：返回提示"项目成员由 GitLab 同步维护"。
+- 所有端点中追加 `project_member` 角色的逻辑（`projects.py:539-541`、`users.py:444-446`）全部移除。
+
+> **理由**：只隐藏前端、保留后端写入路径，任何人直接调 API 仍能手动写成员，与 GitLab 同步产生数据不一致窗口，且继续凭空造出 `project_member` 角色。
 
 ## 数据迁移
 
-- `settings` 表新增 GitLab 同步配置字段。
-- 迁移或启动初始化不再创建 `project_member` 系统角色。
-- 可删除 `user_roles` 中关联到 `project_member` 的记录。
+- `settings` 表新增 GitLab 同步配置字段（`gitlab_sync_enabled`、`gitlab_sync_schedule_time`、`gitlab_sync_default_password`），自动 schema 迁移。
+- `settings` 新字段必须 `nullable=True` 或有默认值，避免对已有数据的表迁移失败。
+- 迁移或启动初始化不再创建 `project_member` 系统角色（修改 `database.py:_init_system_roles`）。
+- **DML 迁移**：清理 `user_roles` 中关联到 `project_member` 的记录。`migration.py` 只做 schema 迁移，DML 清理需新增 `_migrate_remove_project_member_roles()` 函数在 `init_db` 中调用，必须幂等（重复运行不报错）。
 - 若保留 `roles` 表中的 `project_member` 行，也必须从 API 和页面展示中隐藏。
 - 保留 `project_members` 表和已有关系，下一次 GitLab 同步覆盖。
+- **效率守卫迁移**：`efficiency.py` 中基于 `is_project_member()` 的 403 守卫必须重写（见"人员能效"章节），不能简单删除角色后留空。
 
 ## 测试范围
 
@@ -239,18 +355,32 @@ GitLab 角色映射：
 - 系统管理员所有项目可读写。
 - 项目管理员只对 `project_admins` 项目可写，对 `project_admins ∪ project_members` 项目可读。
 - 普通用户只对 `project_members` 项目可读，无项目写权限。
+- `can_view_person_detail`：系统管理员→任何人；项目管理员→可读项目内成员；普通用户→仅自己。
+- 6 个 helper × 4 种角色组合（含无角色）全覆盖。
+
+**回归测试（IRON RULE）**：
+
+- `test_efficiency.py` 和 `test_efficiency_monthly.py` 依赖 `project_member` 角色，去角色后必断，必须更新为无角色用户语义。
+- `efficiency.list` 新增"无角色用户列表全员可见"回归（旧逻辑 `filter(False)` 返回空）。
+- `efficiency.detail` 新增"无角色用户看他人返回 403"回归（旧逻辑守卫失效，能看任何人）。
+- 5 处权限分支（projects/reports/webhook_reviews/efficiency/tasks）改用 helper 后行为不变。
 
 项目与同步：
 
 - 同步创建缺失项目。
 - 已存在项目也会同步成员。
-- Owner/Maintainer 映射为项目管理员。
+- Owner/Maintainer（直接）映射为项目管理员。
+- Owner/Maintainer（继承）只映射为项目成员，不写入 project_admins。
 - Developer/Reporter/Guest 只映射为项目成员。
 - 已有系统管理员不被变更角色。
 - 已有用户不改密码。
 - 新用户使用系统设置默认密码。
 - 未配置默认密码时跳过新用户创建并返回提示。
 - 某项目成员拉取失败时不清空旧关系。
+- 覆盖前记录被移除的非系统管理员（移除审计）。
+- 邮箱歧义（多用户同邮箱）跳过并记录提示。
+- 单项目失败不影响其他项目（per-project 事务隔离）。
+- 用户创建与项目关系覆盖分离（回滚不连带删用户）。
 
 业务 API：
 
@@ -261,17 +391,54 @@ GitLab 角色映射：
 - 人员能效日详情和月详情按规则返回 403。
 - 普通用户任务日志菜单隐藏，接口按可读项目过滤。
 
-页面：
+页面（模板渲染测试，沿用 `test_templates/` 模式，3 身份 × 7 模板参数化）：
 
 - 项目管理员不显示系统设置、账号管理、权限管理。
 - 普通用户只显示项目管理、审查报告、Webhook 审查、人员能效。
 - 普通用户项目表无复选框和操作列。
 - 权限管理页不展示项目成员角色。
 - 账号管理页不展示项目成员角色选项和手动成员授权区。
+- `/api/roles/definitions/builtin` 不返回 project_member（需加认证或过滤）。
 
 调度：
 
 - 启动时注册 GitLab 自动同步任务。
-- 保存系统设置后刷新 GitLab 自动同步任务。
+- 保存系统设置后刷新 GitLab 自动同步任务（`_refresh_scheduler` 需扩展）。
 - 手动同步和自动同步调用同一服务方法。
+- 同步任务不阻塞每日代码审查任务（线程隔离）。
+
+## 已知风险与缓解措施
+
+### P0：同步创建用户统一默认密码
+
+**风险**：同步为 GitLab 所有成员（含 Group 继承成员）创建可登录账号，密码为统一的 `gitlab_sync_default_password`。任何知道默认密码的人都能以他人账号登录，造成横向越权。
+
+**决策**：设计原样保留（知情接受）。理由：内部工具，成员皆为可信内部员工。
+
+**可选缓解**（后续迭代）：
+- 新同步账号默认 `is_active=False`，需管理员手动激活。
+- 或标记 `must_change_password`，强制首次登录改密。
+- 或只为 Developer 及以上创建可登录账号，Guest/Reporter 仅同步关系不创建账号。
+
+### P2：邮箱歧义导致重复账号
+
+**风险**：当前无 `gitlab_user_id` 稳定标识，靠 email>username 匹配。若用户先按 email 未匹配创建了 `zhang-123`，后补 email，再同步按"邮箱优先"命中原账号，同一 GitLab 用户裂成两个本地账号。
+
+**决策**：设计原样保留。接受人工清理重复账号的代价。后续可考虑 `User` 表新增 `gitlab_user_id` 字段做稳定幂等键。
+
+### P2：Group 继承成员关系量
+
+**风险**：`members/all` 含 Group 继承成员，一个 Group Owner 的 `project_members` 记录可能覆盖上百个项目。
+
+**缓解**：已在角色映射中区分直接/继承成员，继承成员只写 `project_members`（只读），不写 `project_admins`（管理权），控制关系量和语义。
+
+## 交付策略
+
+采用分 3 阶段交付，降低单次 blast radius：
+
+- **Phase 1（权限重构）**：新建 `app/core/permissions.py` + 迁移 `require_*` 到 `deps.py` + 5 个 API 改用 helper + efficiency 列表/详情重写 + reports/webhook 普通用户过滤（新功能）。零对外行为变更，可独立测试。
+- **Phase 2（去角色 + 前端）**：隐藏 `project_member` 角色 + 关闭后端成员写入端点 + DML 迁移清理 + 7 个前端模板权限渲染 + 回归测试。
+- **Phase 3（GitLab 同步）**：扩展 `GitLabClient`（新增 `get_project_members`）+ 新建同步服务（dict 索引匹配 / per-project 事务 / 覆盖审计）+ 调度器扩展 + 线程隔离。
+
+Phase B 和 Phase C 无共享模块，可并行开发。Phase A 必须先完成（Phase B/C 依赖 permissions helper）。
 

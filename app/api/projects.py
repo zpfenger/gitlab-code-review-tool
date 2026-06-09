@@ -10,7 +10,8 @@ from app.schemas.project import ProjectCreate, ProjectUpdate, ProjectResponse
 from app.schemas.response import ApiResponse
 from app.services.gitlab_client import GitLabClient, GitLabAuthError, GitLabConnectionError
 from app.security import security_service
-from app.api.users import get_current_user_full, require_system_admin, require_project_admin
+from app.api.deps import get_current_user_full, require_system_admin, require_project_admin
+from app.core.permissions import get_readable_project_ids, can_read_project, can_write_project
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
@@ -83,57 +84,20 @@ def _select_project_name(gitlab_project: Dict[str, Any], existing_names: Set[str
 
 def _filter_projects_by_permission(projects: List[Project], user: User, db: Session) -> List[Project]:
     """根据用户权限过滤项目列表"""
-    if user.is_system_admin():
-        # 系统管理员看所有项目
+    readable_ids = get_readable_project_ids(user, db)
+    if readable_ids is None:
+        # system_admin：看所有项目
         return projects
-    elif user.is_project_admin() or user.is_project_member():
-        # 项目管理员/成员：查询关联表获取有权限的项目ID
-        from app.models.user import project_admins, project_members
-        
-        admin_stmt = project_admins.select().where(project_admins.c.user_id == user.id)
-        admin_project_ids = {row[0] for row in db.execute(admin_stmt).fetchall()}
-        
-        member_stmt = project_members.select().where(project_members.c.user_id == user.id)
-        member_project_ids = {row[0] for row in db.execute(member_stmt).fetchall()}
-        
-        allowed_ids = admin_project_ids | member_project_ids
-        return [p for p in projects if p.id in allowed_ids]
-    else:
+    if not readable_ids:
         return []
+    return [p for p in projects if p.id in readable_ids]
 
 
 def _check_project_permission(user: User, project_id: int, require_write: bool = False, db: Session = None) -> bool:
     """检查用户对项目的权限"""
-    if user.is_system_admin():
-        return True
-    
-    if db is None:
-        return False
-    
-    from app.models.user import project_admins, project_members
-    
     if require_write:
-        # 需要写入权限：必须是项目管理员
-        admin_stmt = project_admins.select().where(
-            (project_admins.c.user_id == user.id) & 
-            (project_admins.c.project_id == project_id)
-        )
-        result = db.execute(admin_stmt).fetchone()
-        return result is not None
-    else:
-        # 只需要读取权限：项目管理员或成员都可以
-        admin_stmt = project_admins.select().where(
-            (project_admins.c.user_id == user.id) & 
-            (project_admins.c.project_id == project_id)
-        )
-        if db.execute(admin_stmt).fetchone():
-            return True
-        
-        member_stmt = project_members.select().where(
-            (project_members.c.user_id == user.id) & 
-            (project_members.c.project_id == project_id)
-        )
-        return db.execute(member_stmt).fetchone() is not None
+        return can_write_project(user, project_id, db) if db else user.is_system_admin()
+    return can_read_project(user, project_id, db) if db else user.is_system_admin()
 
 
 @router.get("", response_model=ApiResponse[List[ProjectResponse]])
@@ -199,77 +163,18 @@ async def sync_gitlab_projects(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_system_admin),
 ):
-    """使用全局 GitLab Access Token 同步可访问项目，仅创建本地缺失项目。"""
-    from app.models.settings import Settings
-
-    settings = db.query(Settings).first()
-    if not settings:
-        return ApiResponse(success=False, message="系统设置未配置")
-
-    if not settings.global_gitlab_url:
-        return ApiResponse(success=False, message="全局 GitLab URL 未配置")
-
-    if not settings.global_gitlab_token:
-        return ApiResponse(success=False, message="全局 GitLab Token 未配置")
+    """同步 GitLab 项目及成员，仅系统管理员可操作。"""
+    from app.services.gitlab_sync_service import run_gitlab_sync
 
     try:
-        token = security_service.decrypt(settings.global_gitlab_token)
-    except ValueError:
-        return ApiResponse(success=False, message="全局 GitLab Token 解密失败，请重新保存配置")
-
-    if not token:
-        return ApiResponse(success=False, message="全局 GitLab Token 未配置")
-
-    try:
-        client = GitLabClient(gitlab_url=settings.global_gitlab_url, access_token=token)
-        gitlab_projects = client.list_accessible_projects()
-    except GitLabAuthError as e:
-        return ApiResponse(success=False, message=f"GitLab 认证失败: {e}")
-    except GitLabConnectionError as e:
-        return ApiResponse(success=False, message=f"GitLab 连接失败: {e}")
-
-    existing_project_ids = {row[0] for row in db.query(Project.project_id).all()}
-    existing_names = {row[0] for row in db.query(Project.name).all()}
-
-    created_projects = []
-    skipped = 0
-    failed = 0
-
-    for gitlab_project in gitlab_projects:
-        gitlab_project_id = gitlab_project.get("id")
-        if not gitlab_project_id:
-            failed += 1
-            continue
-
-        gitlab_project_id = int(gitlab_project_id)
-        if gitlab_project_id in existing_project_ids:
-            skipped += 1
-            continue
-
-        project_name = _select_project_name(gitlab_project, existing_names)
-        project = Project(
-            name=project_name,
-            project_id=gitlab_project_id,
-            description=gitlab_project.get("description") or None,
-            target_branches=None,
-            is_active=True,
-        )
-        db.add(project)
-        existing_project_ids.add(gitlab_project_id)
-        created_projects.append({"name": project_name, "project_id": gitlab_project_id})
-
-    db.commit()
+        result = run_gitlab_sync(db)
+    except ValueError as exc:
+        return ApiResponse(success=False, message=str(exc))
 
     return ApiResponse(
         success=True,
-        message="GitLab 项目同步完成",
-        data={
-            "created": len(created_projects),
-            "skipped": skipped,
-            "failed": failed,
-            "total": len(gitlab_projects),
-            "created_projects": created_projects,
-        },
+        message="GitLab 项目及成员同步完成",
+        data=result.to_dict(),
     )
 
 
@@ -520,25 +425,11 @@ async def add_project_member(
         if pa_role and pa_role not in target_user.roles:
             target_user.roles.append(pa_role)
     else:
-        # 检查是否已在关联中
-        stmt = project_members.select().where(
-            (project_members.c.project_id == project_id) & 
-            (project_members.c.user_id == user_id)
+        # 项目成员由 GitLab 同步维护，不再支持手动添加
+        raise HTTPException(
+            status_code=400,
+            detail="项目成员由 GitLab 同步维护，不支持手动添加。请通过同步 GitLab 项目及成员功能管理。"
         )
-        if not db.execute(stmt).fetchone():
-            from datetime import datetime
-            stmt = project_members.insert().values(
-                project_id=project_id,
-                user_id=user_id,
-                assigned_by=current_user.id,
-                assigned_at=int(datetime.now().timestamp())
-            )
-            db.execute(stmt)
-        
-        # 确保有项目成员角色
-        pm_role = db.query(Role).filter(Role.name == Role.PROJECT_MEMBER).first()
-        if pm_role and pm_role not in target_user.roles:
-            target_user.roles.append(pm_role)
     
     db.commit()
     
@@ -562,28 +453,12 @@ async def remove_project_member(
     if not current_user.is_system_admin() and not _check_project_permission(current_user, project_id, require_write=True, db=db):
         raise HTTPException(status_code=403, detail="您没有权限管理此项目的成员")
     
-    from app.models.user import project_admins, project_members
     target_user = db.query(User).filter(User.id == user_id).first()
     if not target_user:
         raise HTTPException(status_code=404, detail="用户不存在")
-    
-    # 不能移除系统管理员
-    if target_user.is_system_admin():
-        raise HTTPException(status_code=400, detail="不能移除系统管理员")
-    
-    # 移除关联
-    stmt1 = project_admins.delete().where(
-        (project_admins.c.project_id == project_id) & 
-        (project_admins.c.user_id == user_id)
+
+    # 项目成员由 GitLab 同步维护，不再支持手动移除
+    raise HTTPException(
+        status_code=400,
+        detail="项目成员由 GitLab 同步维护，不支持手动移除。请通过同步 GitLab 项目及成员功能管理。"
     )
-    db.execute(stmt1)
-    
-    stmt2 = project_members.delete().where(
-        (project_members.c.project_id == project_id) & 
-        (project_members.c.user_id == user_id)
-    )
-    db.execute(stmt2)
-    
-    db.commit()
-    
-    return {"success": True, "message": f"已移除 {target_user.username} 的项目权限"}
