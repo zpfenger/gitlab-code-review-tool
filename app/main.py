@@ -173,11 +173,24 @@ def get_template_context(request: Request) -> dict:
     user = request.session.get("user")
     display_name = user
     if user:
+        db = None
         try:
-            config = config_manager.get_admin_config()
-            display_name = config.nickname or user
+            db = SessionLocal()
+            db_user = db.query(User).filter(User.username == user).first()
+            if db_user:
+                display_name = db_user.nickname or user
+            else:
+                config = config_manager.get_admin_config()
+                display_name = config.nickname or user
         except Exception:
-            pass
+            try:
+                config = config_manager.get_admin_config()
+                display_name = config.nickname or user
+            except Exception:
+                pass
+        finally:
+            if db is not None:
+                db.close()
     return {
         "current_user": user,
         "display_name": display_name,
