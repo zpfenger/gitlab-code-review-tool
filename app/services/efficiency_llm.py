@@ -15,43 +15,15 @@ import httpx
 from loguru import logger
 
 from app.services.truncate_utils import truncate_text, truncate_diffs_by_files
+from app.services.efficiency_prompt_template import (
+    EFFICIENCY_STANDARD_TEMPLATE,
+    EFFICIENCY_MONTHLY_STANDARD_TEMPLATE,
+    get_efficiency_template,
+    get_monthly_template,
+)
 
 
-# ── Prompt 模板 ────────────────────────────────────────
-EFFICIENCY_SYSTEM_PROMPT = """你是一位资深的软件开发工程师，专注于代码的规范性、功能性、安全性和稳定性。本次任务是对单个员工"某一天"提交的代码进行综合评审，并提炼当日主要工作内容。
-
-### 评分目标（与日报审查一致）：
-1. 注释（5分）：注释要"有用"不冗余，只注释"为什么这么做"，避免无意义、与代码脱节的注释。
-2. 业务逻辑校验（30分）：是否符合需求文档的核心规则、异常处理是否合理、数据库交互是否存在 N+1 查询等。
-3. 性能优化点（40分）：是否存在循环嵌套、重复计算、大对象频繁创建等性能瓶颈、缓存策略、IO 同步阻塞。
-4. 安全风险排查（10分）：是否存在 SQL 注入、XSS、CSRF；敏感数据脱敏；权限校验覆盖。
-5. 代码架构与扩展性（10分）：是否遵循 SOLID、有无过度耦合、配置项是否硬编码。
-6. 编码规范（5分）：命名/注释/格式统一性，测试覆盖率。
-
-### 输出格式（严格按照）：
-请按以下 Markdown 结构输出，确保所有标记都存在，便于程序解析：
-
-## 评分简述
-（1-2 句话点明当日代码的整体质量与突出问题）
-
-## 评分明细
-- 注释（5分）：x 分，说明
-- 业务逻辑校验（30分）：x 分，说明
-- 性能优化点（40分）：x 分，说明
-- 安全风险排查（10分）：x 分，说明
-- 代码架构与扩展性（10分）：x 分，说明
-- 编码规范（5分）：x 分，说明
-
-## 主要工作（不超过 {top_n} 条）
-1. xxx
-2. xxx
-3. xxx
-（按对业务的影响和工作量排序，简单的修复、typo、格式调整请合并或忽略）
-
-## 总分：XX 分
-"""
-
-
+# ── 用户提示词模板 ────────────────────────────────────
 EFFICIENCY_USER_PROMPT = """以下是员工 {author_name} 当日的代码提交内容。
 
 ### 提交信息（commits）：
@@ -61,40 +33,6 @@ EFFICIENCY_USER_PROMPT = """以下是员工 {author_name} 当日的代码提交�
 {diffs_text}
 
 请按系统提示的格式输出评分简述、评分明细、主要工作（不超过 {top_n} 条）和总分。"""
-
-
-# ── 月度 Prompt 模板 ──────────────────────────────────
-EFFICIENCY_MONTHLY_SYSTEM_PROMPT = """你是一位资深的软件开发工程师，需要对员工 {author_name} 在 {year_month} 月度的代码提交进行综合评审，并总结本月主要工作成果。
-
-### 评分目标：
-1. 注释（5分）：注释要"有用"不冗余，只注释"为什么这么做"
-2. 业务逻辑校验（30分）：是否符合需求文档的核心规则、异常处理是否合理
-3. 性能优化点（40分）：是否存在性能瓶颈、缓存策略是否合理
-4. 安全风险排查（10分）：是否存在安全漏洞、敏感数据脱敏
-5. 代码架构与扩展性（10分）：是否遵循 SOLID、有无过度耦合
-6. 编码规范（5分）：命名/注释/格式统一性
-
-### 输出格式（严格按照）：
-请按以下 Markdown 结构输出，确保所有标记都存在，便于程序解析：
-
-## 月度评分简述
-（2-3 句话概括本月整体表现和代码质量趋势）
-
-## 月度评分明细
-- 注释（5分）：x 分，说明
-- 业务逻辑校验（30分）：x 分，说明
-- 性能优化点（40分）：x 分，说明
-- 安全风险排查（10分）：x 分，说明
-- 代码架构与扩展性（10分）：x 分，说明
-- 编码规范（5分）：x 分，说明
-
-## 月度主要工作（不超过 {top_n} 条）
-1. xxx
-2. xxx
-（按对业务的影响和工作量排序）
-
-## 月度总分：XX 分
-"""
 
 
 EFFICIENCY_MONTHLY_USER_PROMPT = """以下是员工 {author_name} 在 {year_month} 的代码提交数据概览。
@@ -172,15 +110,26 @@ def parse_review_summary(text: str) -> str:
 
 
 # ── Prompt 构造 ───────────────────────────────────────
-def build_system_prompt(top_n: int = 5, custom_template: Optional[str] = None) -> str:
+def build_system_prompt(
+    author_name: str,
+    top_n: int = 5,
+    custom_template: Optional[str] = None,
+) -> str:
     """构造日度能效评分系统提示词
 
     Args:
+        author_name: 员工姓名
         top_n: 工作总结条目上限
         custom_template: 自定义提示词模板（可选）
+
+    Returns:
+        格式化后的系统提示词
     """
-    template = custom_template or EFFICIENCY_SYSTEM_PROMPT
-    return template.format(top_n=top_n)
+    return get_efficiency_template(
+        author_name=author_name,
+        top_n=top_n,
+        custom_template=custom_template,
+    )
 
 
 def build_user_prompt(author_name: str, commits_text: str,
@@ -204,10 +153,15 @@ def build_monthly_system_prompt(author_name: str, year_month: str,
         year_month: 年月（如 2026-01）
         top_n: 工作总结条目上限
         custom_template: 自定义提示词模板（可选）
+
+    Returns:
+        格式化后的系统提示词
     """
-    template = custom_template or EFFICIENCY_MONTHLY_SYSTEM_PROMPT
-    return template.format(
-        author_name=author_name, year_month=year_month, top_n=top_n,
+    return get_monthly_template(
+        author_name=author_name,
+        year_month=year_month,
+        top_n=top_n,
+        custom_template=custom_template,
     )
 
 
@@ -255,7 +209,11 @@ def call_llm(
     commits_text = truncate_text(commits_text, review_max_tokens // 5)
 
     messages = [
-        {"role": "system", "content": build_system_prompt(top_n=top_n, custom_template=custom_prompt_template)},
+        {"role": "system", "content": build_system_prompt(
+            author_name=author_name,
+            top_n=top_n,
+            custom_template=custom_prompt_template,
+        )},
         {"role": "user", "content": build_user_prompt(
             author_name=author_name,
             commits_text=commits_text,

@@ -3,8 +3,8 @@ from unittest.mock import patch
 
 from app.services.efficiency_llm import (
     parse_score, parse_work_summary, parse_review_summary,
-    map_score_to_grade, build_user_prompt, call_and_parse,
-    build_monthly_system_prompt, build_monthly_user_prompt,
+    map_score_to_grade, build_system_prompt, build_user_prompt,
+    call_and_parse, build_monthly_system_prompt, build_monthly_user_prompt,
     call_and_parse_monthly,
 )
 
@@ -120,6 +120,26 @@ def test_parse_review_summary_fallback_truncates():
 
 
 # ── prompt 构造 ──────────────────────────────────
+def test_build_system_prompt_contains_fields():
+    from app.services.efficiency_llm import build_system_prompt
+    prompt = build_system_prompt(author_name="张三", top_n=5)
+    assert "张三" in prompt
+    assert "5" in prompt
+    assert "评分简述" in prompt
+    assert "总分" in prompt
+    assert "注释" in prompt
+    assert "性能" in prompt
+
+
+def test_build_system_prompt_with_custom_template():
+    from app.services.efficiency_llm import build_system_prompt
+    custom = "自定义模板 {author_name} {top_n}"
+    prompt = build_system_prompt(author_name="李四", top_n=3, custom_template=custom)
+    assert "李四" in prompt
+    assert "3" in prompt
+    assert "自定义模板" in prompt
+
+
 def test_build_user_prompt_contains_inputs():
     prompt = build_user_prompt(
         author_name="张三",
