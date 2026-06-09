@@ -9,36 +9,46 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.api.deps import get_current_user
 from app.models.webhook_review import MrReviewLog, PushReviewLog
-from app.models.user import User, project_admins, project_members
+from app.models.user import User, project_admins
+from app.core.permissions import (
+    author_matches_user_condition,
+    get_readable_project_ids,
+    is_self_identity,
+    should_limit_to_self,
+    should_limit_to_self_for_project,
+)
 from app.models.project import Project
 from app.schemas.response import ApiResponse
-from app.api.users import get_current_user_full
+from app.api.deps import get_current_user_full
 
 router = APIRouter(prefix="/api/webhook-reviews", tags=["webhook-reviews"])
 
 
 def _get_user_allowed_project_names(user: User, db: Session) -> Optional[List[str]]:
     """获取用户有权限的项目名称列表"""
-    if user.is_system_admin():
-        # 系统管理员看所有项目
+    readable_ids = get_readable_project_ids(user, db)
+    if readable_ids is None:
+        # system_admin：看所有项目
         return None
-    elif user.is_project_admin() or user.is_project_member():
-        # 项目管理员/成员：查询关联表获取有权限的项目
-        admin_stmt = project_admins.select().where(project_admins.c.user_id == user.id)
-        admin_project_ids = {row[0] for row in db.execute(admin_stmt).fetchall()}
-        
-        member_stmt = project_members.select().where(project_members.c.user_id == user.id)
-        member_project_ids = {row[0] for row in db.execute(member_stmt).fetchall()}
-        
-        allowed_ids = admin_project_ids | member_project_ids
-        if not allowed_ids:
-            return []
-        
-        # 获取项目名称列表
-        projects = db.query(Project.name).filter(Project.id.in_(allowed_ids)).all()
-        return [p[0] for p in projects]
-    else:
+    if not readable_ids:
         return []
+    projects = db.query(Project.name).filter(Project.id.in_(readable_ids)).all()
+    return [p[0] for p in projects]
+
+
+def _get_user_admin_project_names(user: User, db: Session) -> List[str]:
+    """获取用户管理的项目名称列表"""
+    if not user.is_project_admin():
+        return []
+    admin_ids = {
+        r[0]
+        for r in db.execute(
+            project_admins.select().where(project_admins.c.user_id == user.id)
+        ).fetchall()
+    }
+    if not admin_ids:
+        return []
+    return [p[0] for p in db.query(Project.name).filter(Project.id.in_(admin_ids)).all()]
 
 
 @router.get("")
@@ -54,9 +64,11 @@ async def list_webhook_reviews(
     current_user: User = Depends(get_current_user_full),
 ):
     """列出 Webhook 审查记录（分页）"""
+    from sqlalchemy import or_
+
     model = MrReviewLog if review_type == "mr" else PushReviewLog
     query = db.query(model)
-    
+
     # 按用户有权限的项目过滤数据
     allowed_project_names = _get_user_allowed_project_names(current_user, db)
     if allowed_project_names == []:
@@ -74,6 +86,23 @@ async def list_webhook_reviews(
     elif allowed_project_names is not None:
         # 非系统管理员，按项目名过滤
         query = query.filter(model.project_name.in_(allowed_project_names))
+
+    # 按项目判断是否需要限制到自己
+    if current_user.is_project_admin():
+        # 项目管理员：自己管理项目的全部数据 + 其他项目的自己数据
+        admin_project_names = _get_user_admin_project_names(current_user, db)
+        if admin_project_names:
+            query = query.filter(
+                or_(
+                    model.project_name.in_(admin_project_names),
+                    author_matches_user_condition(model.author, current_user),
+                )
+            )
+        else:
+            # 没有管理任何项目，只能看自己的
+            query = query.filter(author_matches_user_condition(model.author, current_user))
+    elif should_limit_to_self(current_user):
+        query = query.filter(author_matches_user_condition(model.author, current_user))
 
     if project_name:
         query = query.filter(model.project_name == project_name)
@@ -138,9 +167,11 @@ async def get_webhook_stats(
     current_user: User = Depends(get_current_user_full),
 ):
     """获取 Webhook 审查统计数据（供图表使用）"""
+    from sqlalchemy import or_
+
     model = MrReviewLog if review_type == "mr" else PushReviewLog
     query = db.query(model)
-    
+
     # 按用户有权限的项目过滤数据
     allowed_project_names = _get_user_allowed_project_names(current_user, db)
     if allowed_project_names == []:
@@ -157,6 +188,23 @@ async def get_webhook_stats(
     elif allowed_project_names is not None:
         # 非系统管理员，按项目名过滤
         query = query.filter(model.project_name.in_(allowed_project_names))
+
+    # 按项目判断是否需要限制到自己
+    if current_user.is_project_admin():
+        # 项目管理员：自己管理项目的全部数据 + 其他项目的自己数据
+        admin_project_names = _get_user_admin_project_names(current_user, db)
+        if admin_project_names:
+            query = query.filter(
+                or_(
+                    model.project_name.in_(admin_project_names),
+                    author_matches_user_condition(model.author, current_user),
+                )
+            )
+        else:
+            # 没有管理任何项目，只能看自己的
+            query = query.filter(author_matches_user_condition(model.author, current_user))
+    elif should_limit_to_self(current_user):
+        query = query.filter(author_matches_user_condition(model.author, current_user))
 
     if start_date:
         ts = int(datetime.fromisoformat(start_date).timestamp())
@@ -233,11 +281,24 @@ async def get_webhook_review_detail(
     item = db.query(model).filter(model.id == review_id).first()
     if not item:
         return ApiResponse(success=False, message="记录不存在")
-    
+
     # 检查用户是否有权限查看该记录
     allowed_project_names = _get_user_allowed_project_names(current_user, db)
     if allowed_project_names == [] or (allowed_project_names is not None and item.project_name not in allowed_project_names):
-        return ApiResponse(success=False, message="您没有权限查看此记录")
+        raise HTTPException(status_code=403, detail="您没有权限查看此记录")
+
+    # 按项目判断是否需要限制到自己
+    if current_user.is_project_admin():
+        # 项目管理员：自己管理项目的全部数据 + 其他项目的自己数据
+        admin_project_names = _get_user_admin_project_names(current_user, db)
+        if item.project_name not in admin_project_names and not is_self_identity(
+            current_user, item.author
+        ):
+            raise HTTPException(status_code=403, detail="您没有权限查看此记录")
+    elif should_limit_to_self(current_user) and not is_self_identity(
+        current_user, item.author
+    ):
+        raise HTTPException(status_code=403, detail="您没有权限查看此记录")
 
     record = {
         "id": item.id,

@@ -11,21 +11,22 @@ import json
 import re
 import threading
 from datetime import date, datetime, timedelta
-from typing import List, Optional
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from loguru import logger
 from pydantic import BaseModel
-from sqlalchemy import asc, desc, func, or_
+from sqlalchemy import asc, desc, func
 from sqlalchemy.orm import Session
 
-from app.api.users import get_current_user_full
+from app.api.deps import get_current_user_full
 from app.database import get_db, SessionLocal
 from app.models.commit_record import CommitRecord
 from app.models.employee_efficiency import EmployeeEfficiencyDaily
 from app.models.employee_efficiency_monthly import EmployeeEfficiencyMonthly
-from app.models.project import Project
-from app.models.user import User, project_admins, project_members
+from app.models.user import User
+from app.core.permissions import can_view_person_detail, can_view_person_detail_for_project
+from app.models.user import project_admins, project_members
 from app.schemas.response import ApiResponse
 
 router = APIRouter(prefix="/api/efficiency", tags=["efficiency"])
@@ -243,70 +244,63 @@ SORT_FIELDS = {
 }
 
 
-# ──────────────── 权限工具 ────────────────
-
-def _allowed_project_names(user: User, db: Session) -> Optional[List[str]]:
-    """系统管理员返回 None（无需限制）；
-    项目角色返回其有权访问的项目名列表；普通用户返回 []"""
-    if user.is_system_admin():
-        return None
-    if user.is_project_admin() or user.is_project_member():
-        admin_ids = {
-            r[0] for r in db.execute(
-                project_admins.select().where(
-                    project_admins.c.user_id == user.id
-                )
-            ).fetchall()
-        }
-        member_ids = {
-            r[0] for r in db.execute(
-                project_members.select().where(
-                    project_members.c.user_id == user.id
-                )
-            ).fetchall()
-        }
-        ids = admin_ids | member_ids
-        if not ids:
-            return []
-        return [p[0] for p in db.query(Project.name).filter(
-            Project.id.in_(ids)
-        ).all()]
-    return []
-
-
 def _restrict_query_by_user(query, current_user: User, db: Session,
                             model_class=None):
     """按用户角色裁剪查询（通用，支持 daily 和 monthly 模型）：
-    - system_admin 不限制
-    - project_admin 看其管理项目里出现过的人（projects_involved JSON LIKE）
-    - project_member 仅看与自己 email 相同的行
-    - 其他角色 / 无角色：空结果
+    人员能效列表和团队概览对所有登录用户全员可见；
+    人员详情由 can_view_person_detail 单独控制。
     """
-    if model_class is None:
-        model_class = EmployeeEfficiencyDaily
+    return query
+
+
+def _check_can_view_detail_for_user(
+    current_user: User, target_email: str, db: Session,
+    projects_involved: Optional[list] = None
+) -> bool:
+    """检查用户是否可以查看指定人员的能效详情。
+
+    对于项目管理员，严格按 projects_involved 判断：
+    只有当目标人员涉及的项目包含用户管理的项目时，才能查看详情。
+    """
     if current_user.is_system_admin():
-        return query
+        return True
+
+    # 自己看自己始终允许
+    if target_email and target_email.strip().lower() in {
+        (current_user.email or '').strip().lower(),
+        (current_user.username or '').strip().lower(),
+        (current_user.nickname or '').strip().lower(),
+    }:
+        return True
+
     if current_user.is_project_admin():
-        names = _allowed_project_names(current_user, db) or []
-        if not names:
-            return query.filter(False)
-        conds = [
-            model_class.projects_involved.like(f'%"{n}"%')
-            for n in names
-        ]
-        return query.filter(or_(*conds))
-    if current_user.is_project_member():
-        if not current_user.email:
-            return query.filter(False)
-        return query.filter(
-            model_class.author_email == current_user.email
-        )
-    return query.filter(False)
+        if not projects_involved:
+            return False
+
+        from app.models.project import Project
+        # 获取用户管理的项目名称
+        admin_ids = {
+            r[0]
+            for r in db.execute(
+                project_admins.select().where(project_admins.c.user_id == current_user.id)
+            ).fetchall()
+        }
+        if not admin_ids:
+            return False
+
+        admin_project_names = {
+            p[0] for p in db.query(Project.name).filter(Project.id.in_(admin_ids)).all()
+        }
+
+        # 检查目标人员涉及的项目是否包含用户管理的项目
+        return bool(set(projects_involved) & admin_project_names)
+
+    return False
 
 
 # ──────────────── 序列化 ────────────────
 
-def _serialize(row: EmployeeEfficiencyDaily) -> dict:
+def _serialize(row: EmployeeEfficiencyDaily, can_view_detail: bool = True) -> dict:
     return {
         "id": row.id,
         "author_email": row.author_email,
@@ -327,6 +321,7 @@ def _serialize(row: EmployeeEfficiencyDaily) -> dict:
         ),
         "llm_status": row.llm_status,
         "llm_error": row.llm_error,
+        "can_view_detail": can_view_detail,
     }
 
 
@@ -408,6 +403,10 @@ def _list_range_aggregated(
     for g in grouped.values():
         scores = g["scores"]
         avg_score = round(sum(scores) / len(scores)) if scores else None
+        projects_list = sorted(g["projects"])
+        can_view = _check_can_view_detail_for_user(
+            current_user, g["author_email"], db, projects_list
+        )
         items.append({
             "author_email": g["author_email"],
             "author_name": g["author_name"],
@@ -418,6 +417,7 @@ def _list_range_aggregated(
             "review_score": avg_score,
             "review_grade": _map_score_to_grade(avg_score),
             "projects_involved": sorted(g["projects"]),
+            "can_view_detail": can_view,
         })
 
     # 排序
@@ -535,10 +535,19 @@ async def list_efficiency(
         "avg_score": round(float(agg.avg_score or 0), 1),
     }
 
+    # 为每个人员检查是否可以查看详情
+    serialized_items = []
+    for r in items:
+        projects_list = json.loads(r.projects_involved or "[]")
+        can_view = _check_can_view_detail_for_user(
+            current_user, r.author_email, db, projects_list
+        )
+        serialized_items.append(_serialize(r, can_view_detail=can_view))
+
     return ApiResponse(
         success=True,
         data={
-            "items": [_serialize(r) for r in items],
+            "items": serialized_items,
             "total": total,
             "team_stats": team_stats,
         },
@@ -561,14 +570,9 @@ async def get_detail(
 
     支持区间模式：传 start_date + end_date 时返回区间内每日明细列表。
     """
-    # 普通成员只能看自己的详情
-    if not current_user.is_system_admin():
-        if (
-            current_user.is_project_member()
-            and not current_user.is_project_admin()
-        ):
-            if (current_user.email or "").lower() != email.lower():
-                raise HTTPException(403, "无权查看他人能效详情")
+    # 权限检查：非管理员只能看自己或可读项目内成员的详情
+    if not can_view_person_detail(current_user, email, db):
+        raise HTTPException(403, "无权查看他人能效详情")
 
     # 区间模式：返回区间内每日明细
     if start_date and end_date:
@@ -738,7 +742,7 @@ MONTHLY_SORT_FIELDS = {
 }
 
 
-def _serialize_monthly(row: EmployeeEfficiencyMonthly) -> dict:
+def _serialize_monthly(row: EmployeeEfficiencyMonthly, can_view_detail: bool = True) -> dict:
     return {
         "id": row.id,
         "author_email": row.author_email,
@@ -760,6 +764,7 @@ def _serialize_monthly(row: EmployeeEfficiencyMonthly) -> dict:
         ),
         "llm_status": row.llm_status,
         "llm_error": row.llm_error,
+        "can_view_detail": can_view_detail,
     }
 
 
@@ -831,10 +836,19 @@ async def monthly_list(
         "total_active_days": int(agg.total_active_days or 0),
     }
 
+    # 为每个人员检查是否可以查看详情
+    serialized_items = []
+    for r in items:
+        projects_list = json.loads(r.projects_involved or "[]")
+        can_view = _check_can_view_detail_for_user(
+            current_user, r.author_email, db, projects_list
+        )
+        serialized_items.append(_serialize_monthly(r, can_view_detail=can_view))
+
     return ApiResponse(
         success=True,
         data={
-            "items": [_serialize_monthly(r) for r in items],
+            "items": serialized_items,
             "total": total,
             "team_stats": team_stats,
         },
@@ -863,12 +877,9 @@ async def monthly_detail(
     if not re.match(r'^\d{4}-\d{2}$', year_month):
         raise HTTPException(400, "year_month 格式错误，应为 YYYY-MM")
 
-    # 权限检查
-    if not current_user.is_system_admin():
-        if (current_user.is_project_member()
-                and not current_user.is_project_admin()):
-            if (current_user.email or "").lower() != email.lower():
-                raise HTTPException(403, "无权查看他人月度能效详情")
+    # 权限检查：非管理员只能看自己或可读项目内成员的月度详情
+    if not can_view_person_detail(current_user, email, db):
+        raise HTTPException(403, "无权查看他人月度能效详情")
 
     summary = (
         db.query(EmployeeEfficiencyMonthly)

@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import User, Role, Project
-from app.api.users import require_system_admin, get_current_user_full
+from app.api.deps import require_system_admin, get_current_user_full
 
 router = APIRouter(prefix="/api/roles", tags=["roles"])
 
@@ -39,7 +39,7 @@ async def list_roles(
     current_user: User = Depends(require_system_admin),
 ):
     """获取角色列表（仅系统管理员）"""
-    roles = db.query(Role).order_by(Role.is_system_role.desc(), Role.name).all()
+    roles = db.query(Role).filter(Role.name != 'project_member').order_by(Role.is_system_role.desc(), Role.name).all()
     
     result = []
     for role in roles:
@@ -106,21 +106,12 @@ async def get_builtin_role_definitions():
             "display_name": "项目管理员",
             "description": "可管理被授权的项目",
             "permissions": [
-                "查看授权项目的代码评审数据",
-                "创建和修改授权项目",
-                "配置项目通知",
-                "分配项目成员查看权限",
-                "不能访问其他项目",
-            ],
-        },
-        {
-            "name": Role.PROJECT_MEMBER,
-            "display_name": "项目成员",
-            "description": "只能查看被授权的项目",
-            "permissions": [
-                "查看授权项目的代码评审数据",
-                "查看报告",
-                "不能修改任何数据",
+                "新增项目",
+                "查看自己可读项目的数据",
+                "维护自己管理的项目",
+                "查看全员能效列表和团队概览",
+                "人员详情仅限自己及自己项目成员",
+                "自己管理项目的报告可查看全部人员，其他项目仅限自己",
             ],
         },
     ]

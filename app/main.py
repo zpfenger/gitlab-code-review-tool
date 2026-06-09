@@ -27,11 +27,13 @@ from app.models import User, Project, Settings, TaskLog
 from sqlalchemy.orm import joinedload
 from app.services.scheduler import ReviewScheduler, run_monthly_efficiency_aggregation
 from app.services.task_executor import TaskExecutor
+from app.core.permissions import is_self_identity, should_limit_to_self_for_project
 
 # Import API routers
 from app.api import auth, projects, settings as settings_api, tasks, logs, reports
 from app.api import webhook, webhook_reviews, users, roles, efficiency, external
 from app.api.projects import _filter_projects_by_permission
+from app.core.permissions import get_writable_project_ids
 
 # Configuration
 BASE_DIR = Path(__file__).parent
@@ -107,6 +109,16 @@ async def lifespan(app: FastAPI):
                 job_id="monthly_efficiency",
             )
             logger.info("Scheduled monthly task: monthly_efficiency")
+
+            # 注册 GitLab 同步任务
+            if settings.gitlab_sync_enabled and settings.gitlab_sync_schedule_time:
+                from app.services.gitlab_sync_service import run_gitlab_sync
+                scheduler.setup_gitlab_sync_task(
+                    time=settings.gitlab_sync_schedule_time,
+                    callback=lambda: _run_gitlab_sync_scheduled(),
+                    job_id='gitlab_sync'
+                )
+                logger.info(f"Scheduled gitlab_sync task: {settings.gitlab_sync_schedule_time}")
     except Exception as e:
         logger.warning(f"Could not setup scheduler: {e}")
     finally:
@@ -238,22 +250,37 @@ async def index(request: Request):
         today_logs = db.query(TaskLog).filter(
             TaskLog.start_time >= today_start
         ).all()
-        
-        # 统计今天实际创建的文件数量（根据文件修改时间）
+
+        # 统计今天实际创建的文件数量（按权限过滤）
+        allowed_project_names = {p.name for p in allowed_projects}
+        project_name_to_id = {p.name: p.id for p in allowed_projects}
+
         def count_today_reports(report_dir: Path, today_start: datetime) -> int:
-            """统计指定目录下今天修改的所有 .md 文件数量"""
+            """统计指定目录下今天修改的 .md 文件数量（按权限过滤）"""
             if not report_dir.exists():
                 return 0
             count = 0
             for md_file in report_dir.rglob("*.md"):
                 try:
+                    # 按项目权限过滤
+                    parts = md_file.relative_to(report_dir).parts
+                    if len(parts) >= 1 and parts[0] not in allowed_project_names:
+                        continue
+                    # 按项目判断是否需要限制到自己
+                    proj_id = project_name_to_id.get(parts[0]) if len(parts) >= 1 else None
+                    if db_user and proj_id is not None and should_limit_to_self_for_project(
+                        db_user, proj_id, db
+                    ):
+                        author = md_file.stem
+                        if not is_self_identity(db_user, author):
+                            continue
                     mtime = datetime.fromtimestamp(md_file.stat().st_mtime)
                     if today_start <= mtime <= today_end:
                         count += 1
                 except OSError:
                     continue
             return count
-        
+
         report_output_dir = Path(report_output_dir_str)
         today_reports = count_today_reports(report_output_dir, today_start)
 
@@ -335,6 +362,10 @@ async def projects_page(request: Request):
         current_user_roles = [role.name for role in db_user.roles] if db_user else []
         all_projects = db.query(Project).order_by(Project.created_at.desc()).all()
         projects_list = _filter_projects_by_permission(all_projects, db_user, db) if db_user else []
+        writable_project_ids = get_writable_project_ids(db_user, db) if db_user else set()
+        show_project_actions = bool(
+            db_user and (db_user.is_system_admin() or db_user.is_project_admin())
+        )
         # 转为字典列表，避免 Jinja2 tojson 无法序列化 SQLAlchemy 对象
         projects_data = [
             {
@@ -351,6 +382,7 @@ async def projects_page(request: Request):
                 'is_active': p.is_active,
                 'wecom_enabled': p.wecom_enabled,
                 'wecom_webhook_url': p.wecom_webhook_url or '',
+                'can_write': writable_project_ids is None or p.id in writable_project_ids,
                 'created_at': str(p.created_at),
                 'updated_at': str(p.updated_at),
             }
@@ -363,6 +395,7 @@ async def projects_page(request: Request):
                 **get_template_context(request),
                 "projects": projects_data,
                 "current_user_roles": current_user_roles,
+                "show_project_actions": show_project_actions,
             }
         )
     finally:
@@ -524,6 +557,15 @@ async def reports_page(
         allowed_project_names = {p.name for p in allowed_projects}
         projects_list = allowed_projects
 
+        # 获取项目名称到 ID 的映射（用于权限判断）
+        project_name_to_id = {p.name: p.id for p in all_projects}
+
+        # 获取可写项目名称（用于删除按钮权限判断）
+        writable_ids = get_writable_project_ids(db_user, db) if db_user else set()
+        writable_project_names = allowed_project_names if writable_ids is None else {
+            p.name for p in allowed_projects if p.id in writable_ids
+        }
+
         # 如果筛选的项目不在权限列表中，清空筛选条件
         if project and project not in allowed_project_names:
             project = None
@@ -541,6 +583,12 @@ async def reports_page(
                     continue
                 if project and project_name != project:
                     continue
+
+                # 获取项目 ID 并判断当前用户是否需要限制到自己
+                proj_id = project_name_to_id.get(project_name)
+                limit_to_self = db_user and proj_id is not None and should_limit_to_self_for_project(
+                    db_user, proj_id, db
+                )
 
                 for type_dir in sorted(project_dir.iterdir()):
                     if not type_dir.is_dir():
@@ -578,17 +626,25 @@ async def reports_page(
                         if not report_files:
                             continue
 
-                        if project_name not in reports_tree:
-                            reports_tree[project_name] = {}
-
-                        reports_tree[project_name][date_str] = {}
+                        date_authors = {}
                         for report_file in sorted(report_files):
                             author = report_file.stem
-                            reports_tree[project_name][date_str][author] = {
+                            # 按权限限制：普通用户和非本项目管理员只能看自己的报告
+                            if limit_to_self and not is_self_identity(db_user, author):
+                                continue
+                            date_authors[author] = {
                                 'filename': report_file.name,
                                 'path': str(report_file.relative_to(REPORT_DIR)),
                                 'type': dir_type,
                             }
+
+                        # 过滤后无文件则跳过
+                        if not date_authors:
+                            continue
+
+                        if project_name not in reports_tree:
+                            reports_tree[project_name] = {}
+                        reports_tree[project_name][date_str] = date_authors
 
         filters = {
             'project': project,
@@ -604,6 +660,7 @@ async def reports_page(
                 "projects": projects_list,
                 "reports": reports_tree,
                 "filters": filters,
+                "writable_project_names": writable_project_names,
             }
         )
     finally:
@@ -621,11 +678,22 @@ async def webhook_reviews_page(request: Request):
     try:
         db_user = db.query(User).options(joinedload(User.roles)).filter(User.username == user).first()
         current_user_roles = [role.name for role in db_user.roles] if db_user else []
+
+        # 获取可写项目名称（用于删除按钮权限判断）
+        all_projects = db.query(Project).all()
+        allowed_projects = _filter_projects_by_permission(all_projects, db_user, db) if db_user else []
+        writable_ids = get_writable_project_ids(db_user, db) if db_user else set()
+        writable_project_names = (
+            [p.name for p in allowed_projects]
+            if writable_ids is None
+            else [p.name for p in allowed_projects if p.id in writable_ids]
+        )
     finally:
         db.close()
 
     context = get_template_context(request)
     context["current_user_roles"] = current_user_roles
+    context["writable_project_names"] = writable_project_names
 
     return templates.TemplateResponse(
         request,
@@ -690,6 +758,20 @@ async def roles_page(request: Request):
         "roles.html",
         get_template_context(request),
     )
+
+
+def _run_gitlab_sync_scheduled():
+    """定时 GitLab 同步任务（独立线程执行）"""
+    from app.services.gitlab_sync_service import run_gitlab_sync
+    db = SessionLocal()
+    try:
+        logger.info("开始定时 GitLab 项目及成员同步")
+        result = run_gitlab_sync(db)
+        logger.info(f"GitLab 同步完成: {result.to_dict()}")
+    except Exception as e:
+        logger.error(f"GitLab 同步任务失败: {e}")
+    finally:
+        db.close()
 
 
 def run_scheduled_task(task_type: str = 'daily'):

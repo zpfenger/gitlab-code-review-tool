@@ -9,8 +9,14 @@ from app.database import get_db
 from app.models import User
 from app.models.project import Project
 from app.api.deps import get_current_user, get_current_user_obj
-from app.api.users import get_current_user_full
+from app.api.deps import get_current_user_full
 from app.api.projects import _check_project_permission
+from app.core.permissions import (
+    get_readable_project_ids,
+    is_self_identity,
+    should_limit_to_self,
+    should_limit_to_self_for_project,
+)
 from app.schemas.response import ApiResponse
 
 
@@ -26,10 +32,18 @@ ALLOWED_REPORT_DIR = Path("./data/reports")
 
 def _get_user_allowed_project_names(user: User, db: Session) -> set:
     """获取用户有权限查看的项目名称集合"""
-    from app.api.projects import _filter_projects_by_permission
-    all_projects = db.query(Project).all()
-    allowed_projects = _filter_projects_by_permission(all_projects, user, db)
-    return {p.name for p in allowed_projects}
+    readable_ids = get_readable_project_ids(user, db)
+    if readable_ids is None:
+        # system_admin：看所有项目
+        return {p.name for p in db.query(Project.name).all()}
+    if not readable_ids:
+        return set()
+    return {p.name for p in db.query(Project.name).filter(Project.id.in_(readable_ids)).all()}
+
+
+def _get_project_name_to_id_map(db: Session) -> dict:
+    """获取项目名称到 ID 的映射"""
+    return {p.name: p.id for p in db.query(Project.id, Project.name).all()}
 
 
 def _validate_path(path: str) -> Path:
@@ -58,6 +72,8 @@ async def list_reports(
     """List all available reports with optional filters (按权限过滤)"""
     # 获取用户有权限的项目名称
     allowed_project_names = _get_user_allowed_project_names(current_user, db)
+    # 获取项目名称到 ID 的映射
+    project_name_to_id = _get_project_name_to_id_map(db)
 
     reports = []
 
@@ -72,6 +88,12 @@ async def list_reports(
             # 按权限过滤项目
             if project_dir.name not in allowed_project_names:
                 continue
+
+            # 获取项目 ID 并判断是否需要限制到自己
+            proj_id = project_name_to_id.get(project_dir.name)
+            limit_to_self = proj_id is not None and should_limit_to_self_for_project(
+                current_user, proj_id, db
+            )
 
             for type_dir in project_dir.iterdir():
                 if not type_dir.is_dir():
@@ -98,6 +120,11 @@ async def list_reports(
                         # Filter by author
                         file_author = report_file.stem
                         if author and author.lower() not in file_author.lower():
+                            continue
+                        # 按权限限制：普通用户和非本项目管理员只能看自己的报告
+                        if limit_to_self and not is_self_identity(
+                            current_user, file_author
+                        ):
                             continue
 
                         reports.append({
@@ -165,6 +192,14 @@ async def get_report_content(
     allowed_project_names = _get_user_allowed_project_names(current_user, db)
     if project not in allowed_project_names:
         raise HTTPException(status_code=403, detail="您没有权限查看此项目的报告")
+
+    # 按项目判断是否需要限制到自己
+    project_name_to_id = _get_project_name_to_id_map(db)
+    proj_id = project_name_to_id.get(project)
+    if proj_id is not None and should_limit_to_self_for_project(
+        current_user, proj_id, db
+    ) and not is_self_identity(current_user, author):
+        raise HTTPException(status_code=403, detail="您没有权限查看他人的报告")
 
     # Sanitize inputs to prevent path traversal
     safe_project = _sanitize_filename(project)
@@ -249,6 +284,14 @@ async def download_report(
     allowed_project_names = _get_user_allowed_project_names(current_user, db)
     if project not in allowed_project_names:
         raise HTTPException(status_code=403, detail="您没有权限下载此项目的报告")
+
+    # 按项目判断是否需要限制到自己
+    project_name_to_id = _get_project_name_to_id_map(db)
+    proj_id = project_name_to_id.get(project)
+    if proj_id is not None and should_limit_to_self_for_project(
+        current_user, proj_id, db
+    ) and not is_self_identity(current_user, author):
+        raise HTTPException(status_code=403, detail="您没有权限下载他人的报告")
 
     # Sanitize inputs
     safe_project = _sanitize_filename(project)

@@ -12,6 +12,8 @@
         items: [],
         teamStats: null,
         isAdmin: false,
+        isProjectAdmin: false,
+        currentUserEmail: '',
     };
 
     var GRADE_CLASS = {
@@ -200,7 +202,10 @@
             return;
         }
         var rows = STATE.items.map(function (it) {
-            return '<tr data-email="' + escapeHtml(it.author_email) + '">' +
+            var clickable = canViewDetail(it);
+            var rowStyle = clickable ? '' : ' style="cursor:default;opacity:0.7;"';
+            var rowClass = clickable ? ' class="clickable-row"' : '';
+            return '<tr data-email="' + escapeHtml(it.author_email) + '"' + rowStyle + rowClass + '>' +
                 '<td>' + escapeHtml(it.author_name) + '</td>' +
                 '<td><span class="text-muted small">' + escapeHtml(it.author_email) + '</span></td>' +
                 '<td>' + escapeHtml(it.commits_count) + '</td>' +
@@ -215,9 +220,9 @@
         }).join('');
         document.getElementById('efficiencyTbody').innerHTML = rows;
 
-        // 区间模式：点击行 → 弹窗显示每日明细
+        // 区间模式：点击行 → 弹窗显示每日明细（仅可查看的行）
         var isRange = STATE.startDate !== STATE.endDate;
-        document.querySelectorAll('#efficiencyTbody tr[data-email]').forEach(function (tr) {
+        document.querySelectorAll('#efficiencyTbody tr[data-email].clickable-row').forEach(function (tr) {
             tr.addEventListener('click', function () {
                 if (isRange) {
                     openRangeDetailModal(tr.dataset.email);
@@ -235,7 +240,10 @@
             return;
         }
         var rows = STATE.items.map(function (it) {
-            return '<tr data-email="' + escapeHtml(it.author_email) + '">' +
+            var clickable = canViewDetail(it);
+            var rowStyle = clickable ? '' : ' style="cursor:default;opacity:0.7;"';
+            var rowClass = clickable ? ' class="clickable-row"' : '';
+            return '<tr data-email="' + escapeHtml(it.author_email) + '"' + rowStyle + rowClass + '>' +
                 '<td>' + escapeHtml(it.author_name) + '</td>' +
                 '<td><span class="text-muted small">' + escapeHtml(it.author_email) + '</span></td>' +
                 '<td>' + escapeHtml(it.active_days) + '</td>' +
@@ -251,8 +259,8 @@
         }).join('');
         document.getElementById('efficiencyTbody').innerHTML = rows;
 
-        // 点击行 → 月度详情弹窗
-        document.querySelectorAll('#efficiencyTbody tr[data-email]').forEach(function (tr) {
+        // 点击行 → 月度详情弹窗（仅可查看的行）
+        document.querySelectorAll('#efficiencyTbody tr[data-email].clickable-row').forEach(function (tr) {
             tr.addEventListener('click', function () {
                 openMonthlyDetailModal(tr.dataset.email);
             });
@@ -831,18 +839,32 @@
             .catch(function () {});
     };
 
+    function canViewDetail(item) {
+        // 使用后端返回的 can_view_detail 字段
+        if (item && item.can_view_detail !== undefined) {
+            return item.can_view_detail;
+        }
+        // 降级逻辑：系统管理员可看任何人
+        if (STATE.isAdmin) return true;
+        // 普通用户：只能看自己
+        if (!item || !item.author_email) return false;
+        return item.author_email.toLowerCase() === STATE.currentUserEmail.toLowerCase();
+    }
+
     function checkAdminAndBindRecompute() {
-        apiRequest('/api/auth/me')
+        // 返回 promise，调用方可 await 确保角色信息就绪后再渲染
+        var authPromise = apiRequest('/api/auth/me')
             .then(function (resp) {
-                if (!resp) return;
+                if (!resp) return null;
                 return resp.json();
             })
             .then(function (data) {
                 if (!data) return;
                 STATE.isAdmin = data.roles && data.roles.indexOf('system_admin') !== -1;
+                STATE.isProjectAdmin = data.roles && data.roles.indexOf('project_admin') !== -1;
+                STATE.currentUserEmail = data.email || '';
                 if (STATE.isAdmin) {
                     document.getElementById('btnRecompute').style.display = '';
-                    // 检查是否有正在运行的补算任务
                     checkRunningRecompute();
                 }
             })
@@ -857,6 +879,8 @@
         document.getElementById('recomputeModal').addEventListener('click', function (e) {
             if (e.target === this) closeRecomputeModal();
         });
+
+        return authPromise;
     }
 
     function checkRunningRecompute() {
@@ -960,8 +984,10 @@
         document.getElementById('drawerOverlay').addEventListener('click', closeDrawer);
 
         bindSort();
-        checkAdminAndBindRecompute();
-        loadData();
+        // 先获取角色信息，再加载数据，避免竞态导致行全部灰色不可点击
+        checkAdminAndBindRecompute().then(function () {
+            loadData();
+        });
         window.addEventListener('resize', throttle(handleResize, 150));
     });
 })();
