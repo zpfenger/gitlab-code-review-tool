@@ -247,12 +247,20 @@
                 <small class="text-muted">用于日度能效评分的 LLM 提示词。需包含 <code>{top_n}</code> 占位符</small>
             </div>
 
-            <div class="form-group" style="margin-bottom: 0;">
+            <div class="form-group">
                 <label for="efficiency_monthly_prompt_template" class="form-label">月度能效提示词模板</label>
                 <textarea class="form-input" id="efficiency_monthly_prompt_template"
                           name="efficiency_monthly_prompt_template" rows="6" style="font-family: var(--font-mono); height: auto; min-height: 120px; max-height: 400px; resize: vertical;"
                           placeholder="留空使用默认提示词">{{ settings.efficiency_monthly_prompt_template or '' }}</textarea>
                 <small class="text-muted">用于月度能效汇总的 LLM 提示词。需包含 <code>{top_n}</code>、<code>{author_name}</code>、<code>{year_month}</code> 占位符</small>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 0;">
+                <label for="efficiency_excluded_emails" class="form-label">排除邮箱列表</label>
+                <textarea class="form-input" id="efficiency_excluded_emails"
+                          name="efficiency_excluded_emails" rows="3" style="font-family: var(--font-mono); height: auto; min-height: 80px; max-height: 200px; resize: vertical;"
+                          placeholder='["user1@example.com", "user2@example.com"]'>{{ settings.efficiency_excluded_emails or '' }}</textarea>
+                <small class="text-muted">配置的邮箱地址将不出现在人员能效模块中（JSON 数组格式，如 <code>["a@b.com", "c@d.com"]</code>）</small>
             </div>
         </div>
     </div>
@@ -513,6 +521,7 @@ document.getElementById('settingsForm').addEventListener('submit', async functio
         efficiency_work_summary_top_n: parseInt(formData.get('efficiency_work_summary_top_n')) || 5,
         efficiency_prompt_template: formData.get('efficiency_prompt_template') || null,
         efficiency_monthly_prompt_template: formData.get('efficiency_monthly_prompt_template') || null,
+        efficiency_excluded_emails: formData.get('efficiency_excluded_emails') || null,
         weekly_schedule_time: formData.get('weekly_schedule_time') || '09:00',
         weekly_weekday: parseInt(formData.get('weekly_weekday')) || 0,
         weekly_review_days: parseInt(formData.get('weekly_review_days')) || 7,

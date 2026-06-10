@@ -16,7 +16,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from app.api.efficiency import _serialize
+from app.api.efficiency import _serialize, _get_excluded_emails
 from app.database import get_db
 from app.models.employee_efficiency import EmployeeEfficiencyDaily
 from app.models.settings import Settings
@@ -107,7 +107,16 @@ def get_efficiency_list(
 
     支持按邮箱、日期范围筛选，分页返回。
     """
+    # 获取排除邮箱列表
+    excluded_emails = _get_excluded_emails(db)
+
     query = db.query(EmployeeEfficiencyDaily)
+
+    # 应用排除邮箱过滤
+    if excluded_emails:
+        query = query.filter(
+            EmployeeEfficiencyDaily.author_email.notin_(excluded_emails)
+        )
 
     # 按邮箱筛选
     if author_email:
@@ -176,10 +185,18 @@ def get_efficiency_daily(
     else:
         target_date = date.today() - timedelta(days=1)
 
-    # 先查询该日期所有人员数据（用于计算排名）
-    all_rows = db.query(EmployeeEfficiencyDaily).filter(
+    # 获取排除邮箱列表
+    excluded_emails = _get_excluded_emails(db)
+
+    # 先查询该日期所有人员数据（用于计算排名，排除指定邮箱）
+    query = db.query(EmployeeEfficiencyDaily).filter(
         EmployeeEfficiencyDaily.stat_date == target_date
-    ).all()
+    )
+    if excluded_emails:
+        query = query.filter(
+            EmployeeEfficiencyDaily.author_email.notin_(excluded_emails)
+        )
+    all_rows = query.all()
 
     # 无记录视为 pending
     if not all_rows:

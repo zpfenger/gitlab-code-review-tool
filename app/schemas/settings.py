@@ -51,6 +51,7 @@ class SettingsBase(BaseModel):
     efficiency_work_summary_top_n: int = Field(default=5, ge=1, le=20)
     efficiency_prompt_template: Optional[str] = None
     efficiency_monthly_prompt_template: Optional[str] = None
+    efficiency_excluded_emails: Optional[str] = None
 
     # 任务限制
     max_commits_per_run: int = Field(default=100, ge=1, le=1000)
@@ -111,6 +112,27 @@ class SettingsBase(BaseModel):
             raise ValueError(f'GitLab 同步时间格式错误: {v}，需要 HH:MM 格式')
         return v
 
+    @field_validator('efficiency_excluded_emails')
+    @classmethod
+    def validate_efficiency_excluded_emails(cls, v: Optional[str]) -> Optional[str]:
+        """验证人员能效排除邮箱列表格式"""
+        if v is None or v.strip() == '':
+            return None
+        try:
+            emails = json.loads(v) if isinstance(v, str) else v
+        except json.JSONDecodeError:
+            raise ValueError('排除邮箱列表必须是有效的 JSON 数组')
+        if not isinstance(emails, list):
+            raise ValueError('排除邮箱列表必须是 JSON 数组格式')
+        # 验证每个邮箱格式
+        email_pattern = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
+        for email in emails:
+            if not isinstance(email, str) or not email_pattern.match(email.strip()):
+                raise ValueError(f'邮箱格式不正确: {email}')
+        # 去重并规范化
+        normalized = list(set(e.strip().lower() for e in emails))
+        return json.dumps(normalized)
+
 
 class SettingsCreate(SettingsBase):
     pass
@@ -153,6 +175,7 @@ class SettingsUpdate(BaseModel):
     efficiency_work_summary_top_n: Optional[int] = Field(None, ge=1, le=20)
     efficiency_prompt_template: Optional[str] = None
     efficiency_monthly_prompt_template: Optional[str] = None
+    efficiency_excluded_emails: Optional[str] = None
     max_commits_per_run: Optional[int] = None
     diff_max_lines: Optional[int] = None
     report_output_dir: Optional[str] = None
@@ -179,6 +202,27 @@ class SettingsUpdate(BaseModel):
         if not re.match(r'^\d{2}:\d{2}$', v):
             raise ValueError(f'GitLab 同步时间格式错误: {v}，需要 HH:MM 格式')
         return v
+
+    @field_validator('efficiency_excluded_emails')
+    @classmethod
+    def validate_efficiency_excluded_emails(cls, v: Optional[str]) -> Optional[str]:
+        """验证人员能效排除邮箱列表格式"""
+        if v is None or v.strip() == '':
+            return None
+        try:
+            emails = json.loads(v) if isinstance(v, str) else v
+        except json.JSONDecodeError:
+            raise ValueError('排除邮箱列表必须是有效的 JSON 数组')
+        if not isinstance(emails, list):
+            raise ValueError('排除邮箱列表必须是 JSON 数组格式')
+        # 验证每个邮箱格式
+        email_pattern = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
+        for email in emails:
+            if not isinstance(email, str) or not email_pattern.match(email.strip()):
+                raise ValueError(f'邮箱格式不正确: {email}')
+        # 去重并规范化
+        normalized = list(set(e.strip().lower() for e in emails))
+        return json.dumps(normalized)
 
 
 class GitlabTestRequest(BaseModel):

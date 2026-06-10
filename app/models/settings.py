@@ -1,3 +1,4 @@
+import json
 from sqlalchemy import Column, String, Integer, Boolean, Text
 from app.models.base import BaseModel
 
@@ -52,6 +53,7 @@ class Settings(BaseModel):
     efficiency_work_summary_top_n = Column(Integer, default=5, comment="LLM 工作总结条目上限")
     efficiency_prompt_template = Column(Text, nullable=True, comment="能效评分提示词模板")
     efficiency_monthly_prompt_template = Column(Text, nullable=True, comment="月度能效提示词模板")
+    efficiency_excluded_emails = Column(Text, nullable=True, comment="人员能效排除邮箱列表 (JSON 数组)")
 
     # 任务限制
     max_commits_per_run = Column(Integer, default=100, comment="单次最大处理提交数")
@@ -86,6 +88,17 @@ class Settings(BaseModel):
     # 飞书通知配置
     feishu_enabled = Column(Boolean, default=False, comment="飞书通知开关")
     feishu_webhook_url = Column(String(500), nullable=True, comment="飞书 Webhook URL")
+
+    @property
+    def excluded_emails_list(self) -> list:
+        """获取排除的邮箱列表（已规范化为小写）"""
+        if not self.efficiency_excluded_emails:
+            return []
+        try:
+            emails = json.loads(self.efficiency_excluded_emails)
+            return [e.lower() for e in emails if isinstance(e, str)]
+        except (json.JSONDecodeError, TypeError):
+            return []
 
     def __repr__(self):
         return f"<Settings(id={self.id})>"

@@ -1004,6 +1004,7 @@ def run_scheduled_task(task_type: str = 'daily'):
                     llm_config=llm_cfg,
                     top_n=top_n,
                     custom_prompt_template=settings.efficiency_prompt_template,
+                    excluded_emails=settings.excluded_emails_list,
                 )
                 agg_result = aggregator.aggregate(target_efficiency_date)
                 logger.info(f"人员能效聚合: {agg_result}")

@@ -93,6 +93,43 @@ def _build_llm_config(settings):
     }
 
 
+def _get_settings(db: Session):
+    """获取系统设置（带简单缓存）"""
+    from app.models import Settings
+    return db.query(Settings).first()
+
+
+def _get_excluded_emails(db: Session) -> list:
+    """获取排除的邮箱列表（已规范化为小写）"""
+    settings = _get_settings(db)
+    if not settings:
+        return []
+    return settings.excluded_emails_list
+
+
+def _apply_excluded_emails_filter(query, db: Session, model_class=None,
+                                   excluded_emails: list = None):
+    """应用排除邮箱过滤
+
+    Args:
+        query: SQLAlchemy 查询对象
+        db: 数据库会话
+        model_class: 模型类（默认 EmployeeEfficiencyDaily）
+        excluded_emails: 排除邮箱列表（可选，避免重复查询）
+    """
+    if model_class is None:
+        model_class = EmployeeEfficiencyDaily
+
+    if excluded_emails is None:
+        excluded_emails = _get_excluded_emails(db)
+
+    if excluded_emails:
+        query = query.filter(
+            model_class.author_email.notin_(excluded_emails)
+        )
+    return query
+
+
 def _run_daily_recompute(start: date, end: date, force: bool):
     """后台线程：按天补算人员能效数据"""
     from app.models import Settings
@@ -133,6 +170,7 @@ def _run_daily_recompute(start: date, end: date, force: bool):
             llm_config=llm_cfg,
             top_n=top_n,
             custom_prompt_template=settings.efficiency_prompt_template,
+            excluded_emails=settings.excluded_emails_list,
         )
 
         current = start
@@ -217,6 +255,7 @@ def _run_monthly_recompute(year_month: str, force: bool):
             llm_config=llm_cfg,
             top_n=top_n,
             custom_prompt_template=settings.efficiency_monthly_prompt_template,
+            excluded_emails=settings.excluded_emails_list,
         )
         result = aggregator.aggregate(year_month)
 
@@ -488,9 +527,13 @@ async def list_efficiency(
         date_str, start_date, end_date
     )
 
+    # 一次性获取排除邮箱列表，避免重复查询数据库
+    excluded_emails = _get_excluded_emails(db)
+
     q = db.query(EmployeeEfficiencyDaily)
     q = _restrict_query_by_user(q, current_user, db)
     q = _apply_date_filter(q, mode, target, start, end)
+    q = _apply_excluded_emails_filter(q, db, excluded_emails=excluded_emails)
 
     if mode == "range":
         # 区间模式：按 author_email 聚合
@@ -510,6 +553,7 @@ async def list_efficiency(
     stats_q = db.query(EmployeeEfficiencyDaily)
     stats_q = _restrict_query_by_user(stats_q, current_user, db)
     stats_q = _apply_date_filter(stats_q, mode, target, start, end)
+    stats_q = _apply_excluded_emails_filter(stats_q, db, excluded_emails=excluded_emails)
 
     agg = stats_q.with_entities(
         func.count(EmployeeEfficiencyDaily.id).label("n"),
@@ -573,6 +617,11 @@ async def get_detail(
     # 权限检查：非管理员只能看自己或可读项目内成员的详情
     if not can_view_person_detail(current_user, email, db):
         raise HTTPException(403, "无权查看他人能效详情")
+
+    # 排除邮箱检查
+    excluded_emails = _get_excluded_emails(db)
+    if excluded_emails and email.lower() in set(excluded_emails):
+        raise HTTPException(404, "该人员能效数据不存在")
 
     # 区间模式：返回区间内每日明细
     if start_date and end_date:
@@ -789,9 +838,14 @@ async def monthly_list(
     if not re.match(r'^\d{4}-\d{2}$', year_month):
         raise HTTPException(400, "year_month 格式错误，应为 YYYY-MM")
 
+    # 一次性获取排除邮箱列表，避免重复查询数据库
+    excluded_emails = _get_excluded_emails(db)
+
     q = db.query(EmployeeEfficiencyMonthly)
     q = _restrict_monthly_query(q, current_user, db)
     q = q.filter(EmployeeEfficiencyMonthly.year_month == year_month)
+    q = _apply_excluded_emails_filter(q, db, EmployeeEfficiencyMonthly,
+                                       excluded_emails=excluded_emails)
 
     sort_col = MONTHLY_SORT_FIELDS.get(sort_by,
                                         EmployeeEfficiencyMonthly.review_score)
@@ -807,6 +861,8 @@ async def monthly_list(
     stats_q = stats_q.filter(
         EmployeeEfficiencyMonthly.year_month == year_month
     )
+    stats_q = _apply_excluded_emails_filter(stats_q, db, EmployeeEfficiencyMonthly,
+                                             excluded_emails=excluded_emails)
 
     agg = stats_q.with_entities(
         func.count(EmployeeEfficiencyMonthly.id).label("n"),
@@ -880,6 +936,11 @@ async def monthly_detail(
     # 权限检查：非管理员只能看自己或可读项目内成员的月度详情
     if not can_view_person_detail(current_user, email, db):
         raise HTTPException(403, "无权查看他人月度能效详情")
+
+    # 排除邮箱检查
+    excluded_emails = _get_excluded_emails(db)
+    if excluded_emails and email.lower() in set(excluded_emails):
+        raise HTTPException(404, "该人员月度能效数据不存在")
 
     summary = (
         db.query(EmployeeEfficiencyMonthly)

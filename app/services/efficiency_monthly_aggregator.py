@@ -40,6 +40,7 @@ class EfficiencyMonthlyAggregator:
         top_n: int = 10,
         llm_interval: int = 2,
         custom_prompt_template: Optional[str] = None,
+        excluded_emails: Optional[list] = None,
     ):
         """
         Args:
@@ -48,12 +49,14 @@ class EfficiencyMonthlyAggregator:
             top_n: 工作总结条目上限
             llm_interval: LLM 调用间隔（秒）
             custom_prompt_template: 自定义月度提示词模板（可选）
+            excluded_emails: 排除的邮箱列表（可选）
         """
         self.db = db
         self.llm_config = llm_config
         self.top_n = top_n
         self.llm_interval = llm_interval
         self.custom_prompt_template = custom_prompt_template
+        self.excluded_emails = set(e.lower() for e in (excluded_emails or []))
 
     def aggregate(self, year_month: str) -> Dict[str, Any]:
         """对指定月份做一次聚合（幂等，重复调用会 UPSERT）
@@ -67,14 +70,21 @@ class EfficiencyMonthlyAggregator:
         logger.info(f"开始月度能效聚合: {year_month}")
 
         # 1. 查询该月所有 daily 数据
-        daily_rows = (
+        query = (
             self.db.query(EmployeeEfficiencyDaily)
             .filter(
                 EmployeeEfficiencyDaily.stat_date >= f"{year_month}-01",
                 EmployeeEfficiencyDaily.stat_date < _next_month(year_month),
             )
-            .all()
         )
+
+        # 过滤排除的邮箱
+        if self.excluded_emails:
+            query = query.filter(
+                EmployeeEfficiencyDaily.author_email.notin_(list(self.excluded_emails))
+            )
+
+        daily_rows = query.all()
 
         if not daily_rows:
             logger.warning(f"月份 {year_month} 无 daily 数据")

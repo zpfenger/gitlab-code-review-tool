@@ -32,6 +32,7 @@ class EfficiencyAggregator:
         llm_config: Dict[str, Any],
         top_n: int = 5,
         custom_prompt_template: Optional[str] = None,
+        excluded_emails: Optional[list] = None,
     ):
         """
         Args:
@@ -41,12 +42,14 @@ class EfficiencyAggregator:
             llm_config: {"api_url", "api_key", "model", 可选 timeout/temperature 等}
             top_n: 工作总结条目上限
             custom_prompt_template: 自定义提示词模板（可选）
+            excluded_emails: 排除的邮箱列表（可选）
         """
         self.db = db
         self.gitlab_client_factory = gitlab_client_factory
         self.llm_config = llm_config
         self.top_n = top_n
         self.custom_prompt_template = custom_prompt_template
+        self.excluded_emails = set(e.lower() for e in (excluded_emails or []))
 
     # ── 主入口 ────────────────────────────────────────
     def aggregate(self, target_date: date) -> Dict[str, Any]:
@@ -126,6 +129,9 @@ class EfficiencyAggregator:
                     continue
                 email = (commit.get("author_email") or "").strip()
                 if not email or email.endswith("@noreply"):
+                    continue
+                # 过滤排除的邮箱
+                if self.excluded_emails and email.lower() in self.excluded_emails:
                     continue
                 global_seen_sha.add(sha)
 

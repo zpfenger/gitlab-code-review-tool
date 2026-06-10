@@ -315,6 +315,7 @@ def run_monthly_efficiency_aggregation():
             llm_config=llm_cfg,
             top_n=top_n,
             custom_prompt_template=settings.efficiency_monthly_prompt_template,
+            excluded_emails=settings.excluded_emails_list,
         )
         result = aggregator.aggregate(year_month)
         logger.info(f"月度能效聚合任务完成: {result}")
