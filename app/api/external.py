@@ -176,23 +176,13 @@ def get_efficiency_daily(
     else:
         target_date = date.today() - timedelta(days=1)
 
-    # 构建查询
-    query = db.query(EmployeeEfficiencyDaily).filter(
+    # 先查询该日期所有人员数据（用于计算排名）
+    all_rows = db.query(EmployeeEfficiencyDaily).filter(
         EmployeeEfficiencyDaily.stat_date == target_date
-    )
-
-    # 按邮箱筛选
-    if email:
-        email_list = [e.strip() for e in email.split(",") if e.strip()]
-        if email_list:
-            query = query.filter(
-                EmployeeEfficiencyDaily.author_email.in_(email_list)
-            )
-
-    rows = query.all()
+    ).all()
 
     # 无记录视为 pending
-    if not rows:
+    if not all_rows:
         return ApiResponse.ok(
             data={
                 "date": target_date.isoformat(),
@@ -202,6 +192,20 @@ def get_efficiency_daily(
                 "items": [],
             }
         )
+
+    # 按代码变更量（新增+删除）降序排列计算全员排名
+    total = len(all_rows)
+    sorted_all = sorted(all_rows, key=lambda r: r.additions + r.deletions, reverse=True)
+    rank_map = {}
+    for rank, row in enumerate(sorted_all, 1):
+        rank_map[row.author_email] = f"{rank}/{total}"
+
+    # 按邮箱筛选返回结果
+    if email:
+        email_list = [e.strip() for e in email.split(",") if e.strip()]
+        rows = [r for r in all_rows if r.author_email in email_list] if email_list else all_rows
+    else:
+        rows = all_rows
 
     # 根据记录的 llm_status 汇总
     statuses = {r.llm_status for r in rows}
@@ -218,12 +222,6 @@ def get_efficiency_daily(
     # 构造响应
     items = []
     if overall_status == "success":
-        # 按代码变更量（新增+删除）降序排列计算排名
-        total = len(rows)
-        sorted_rows = sorted(rows, key=lambda r: r.additions + r.deletions, reverse=True)
-        rank_map = {}
-        for rank, row in enumerate(sorted_rows, 1):
-            rank_map[row.author_email] = f"{rank}/{total}"
         items = [_serialize(r) | {"code_commit_rank": rank_map.get(r.author_email, "")} for r in rows]
 
     result = {
