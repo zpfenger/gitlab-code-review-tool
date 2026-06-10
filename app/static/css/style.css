@@ -757,7 +757,7 @@ input[type="password"].form-input {
     transform: translateX(0);
     opacity: 1;
     visibility: visible;
-	z-index:99999
+	z-index:1000
 }
 
 .modal-header {

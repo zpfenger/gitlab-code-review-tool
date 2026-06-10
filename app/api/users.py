@@ -213,13 +213,7 @@ async def batch_delete_users(
             })
             continue
 
-        if user.is_system_admin():
-            skipped.append({
-                "id": user.id,
-                "username": user.username,
-                "reason": "不能删除系统管理员账号",
-            })
-            continue
+        # 允许删除所有账号，包括系统管理员
 
         deleted.append({"id": user.id, "username": user.username})
         _delete_user_with_relations(db, user)
@@ -312,9 +306,7 @@ async def update_user(
     if not user:
         raise HTTPException(status_code=404, detail="用户不存在")
     
-    # 系统管理员不能被禁用
-    if user.is_system_admin() and data.is_active is False:
-        raise HTTPException(status_code=400, detail="不能禁用系统管理员账号")
+    # 允许禁用所有账号，包括系统管理员
     
     if data.nickname is not None:
         user.nickname = data.nickname
@@ -348,10 +340,8 @@ async def delete_user(
     if not user:
         raise HTTPException(status_code=404, detail="用户不存在")
     
-    # 系统管理员不能被删除
-    if user.is_system_admin():
-        raise HTTPException(status_code=400, detail="不能删除系统管理员账号")
-    
+    # 允许删除所有账号，包括系统管理员
+
     # 不能删除自己
     if user.id == current_user.id:
         raise HTTPException(status_code=400, detail="不能删除自己的账号")
@@ -403,9 +393,7 @@ async def update_user_roles(
     if Role.SYSTEM_ADMIN in role_names and not current_user.is_system_admin():
         raise HTTPException(status_code=403, detail="系统管理员角色只能由系统管理员分配")
 
-    # 系统管理员角色不能被移除
-    if user.is_system_admin() and Role.SYSTEM_ADMIN not in role_names:
-        raise HTTPException(status_code=400, detail="不能移除系统管理员的角色")
+    # 允许移除所有角色，包括系统管理员角色
 
     # 不能修改自己的角色
     if user.id == current_user.id:

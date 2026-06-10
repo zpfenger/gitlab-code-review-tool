@@ -479,7 +479,8 @@
     }
 
     function isUserDeletable(user) {
-        return !(user.roles || []).includes('system_admin');
+        // 允许删除所有账号，包括系统管理员
+        return true;
     }
 
     function toggleUserSelection(userId, checked) {
@@ -621,7 +622,7 @@
             return `
                 <tr>
                     <td class="user-select-cell">
-                        <input type="checkbox" class="user-select-checkbox" value="${user.id}" onchange="toggleUserSelection(${user.id}, this.checked)" ${selected ? 'checked' : ''} ${canDelete ? '' : 'disabled title="系统管理员账号不能删除"'}>
+                        <input type="checkbox" class="user-select-checkbox" value="${user.id}" onchange="toggleUserSelection(${user.id}, this.checked)" ${selected ? 'checked' : ''}>
                     </td>
                     <td>${index + 1}</td>
                     <td>
@@ -637,11 +638,9 @@
                                 <button class="btn btn-sm btn-secondary" onclick="openProjectPermModal(${user.id})">
                                     <i class="bi bi-folder-check"></i> 项目权限
                                 </button>
-                                ${!user.roles.includes('system_admin') ? `
                                 <button class="btn btn-sm btn-danger" onclick="openDeleteUserModal(${user.id})">
                                     <i class="bi bi-trash"></i> 删除
                                 </button>
-                                ` : ''}
                             </div>
                         </div>
                     </td>
