@@ -192,7 +192,8 @@ class EfficiencyAggregator:
             diffs=data["diffs_text"],
             top_n=self.top_n,
             max_tokens=self.llm_config.get("max_tokens", 4096),
-            temperature=self.llm_config.get("temperature", 0.7),
+            # 评分任务固定低温，保证同模型重复打分结果稳定
+            temperature=self.llm_config.get("temperature", 0.0),
             timeout=self.llm_config.get("timeout", 240),
             max_retries=self.llm_config.get("max_retries", 3),
             retry_delay=self.llm_config.get("retry_delay", 10),

@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from app.services.efficiency_llm import (
     parse_score, parse_work_summary, parse_review_summary,
+    parse_dimension_scores, validate_score,
     map_score_to_grade, build_system_prompt, build_user_prompt,
     call_and_parse, build_monthly_system_prompt, build_monthly_user_prompt,
     call_and_parse_monthly,
@@ -30,6 +31,67 @@ def test_parse_score_empty():
 
 def test_parse_score_rejects_out_of_range():
     assert parse_score("总分：999 分") == 0
+
+
+def test_parse_score_heading_takes_priority_over_body_echo():
+    """正文复述"总分 100 分"时，应以 "## 总分" 标题行为准"""
+    text = "评分维度与标准（总分 100 分）如下\n\n## 总分：85 分"
+    assert parse_score(text) == 85
+
+
+def test_parse_score_no_heading_takes_last_match():
+    """无标题行时取最后一个匹配，避免误抓正文复述"""
+    text = "本评分体系总分 100 分。\n\n经评估，总分：78分"
+    assert parse_score(text) == 78
+
+
+# ── 评分明细解析与校验 ────────────────────────────
+SAMPLE_DETAIL = """## 评分明细
+- 注释（5分）：4 分，注释基本清晰
+- 业务逻辑校验（30分）：25 分，异常处理完善
+- 性能优化点（40分）：35 分，无明显瓶颈
+- 安全风险排查（10分）：9 分，未发现漏洞
+- 代码架构与扩展性（10分）：8 分，结构合理
+- 编码规范（5分）：4 分，命名规范
+
+## 总分：90 分
+"""
+
+
+def test_parse_dimension_scores_extracts_all():
+    dims = parse_dimension_scores(SAMPLE_DETAIL)
+    assert len(dims) == 6
+    assert dims[0] == ("注释", 4, 5)
+    assert dims[2] == ("性能优化点", 35, 40)
+
+
+def test_parse_dimension_scores_clamps_over_max():
+    """维度得分超出满分时按满分截断"""
+    text = "- 注释（5分）：8 分，超出满分"
+    dims = parse_dimension_scores(text)
+    assert dims == [("注释", 5, 5)]
+
+
+def test_parse_dimension_scores_empty():
+    assert parse_dimension_scores("") == []
+    assert parse_dimension_scores("没有明细") == []
+
+
+def test_validate_score_recomputes_on_mismatch():
+    """LLM 总分与明细之和不一致时，以明细重算为准（4+25+35+9+8+4=85）"""
+    assert validate_score(SAMPLE_DETAIL, 90) == 85
+
+
+def test_validate_score_keeps_parsed_when_few_dimensions():
+    """明细维度不足 4 个时信任原总分"""
+    text = "- 注释（5分）：4 分\n\n## 总分：80 分"
+    assert validate_score(text, 80) == 80
+
+
+def test_validate_score_recovers_missing_total():
+    """总分行缺失（解析为 0）但明细完整时，用明细重算恢复"""
+    detail_only = SAMPLE_DETAIL.replace("## 总分：90 分", "")
+    assert validate_score(detail_only, 0) == 85
 
 
 # ── 等级映射 ─────────────────────────────────────
@@ -188,6 +250,33 @@ def test_call_and_parse_returns_parsed_fields_on_success():
     assert result["grade"] == "优秀"
     assert result["work_summary"] == ["实现 A", "修复 B"]
     assert "代码质量优秀" in result["review_summary"]
+
+
+def test_call_and_parse_recomputes_score_from_details():
+    """LLM 总分算错时，以明细之和为准（4+25+35+9+8+4=85 → 良好）"""
+    fake_raw = """## 评分简述
+整体良好。
+
+## 评分明细
+- 注释（5分）：4 分，注释基本清晰
+- 业务逻辑校验（30分）：25 分，异常处理完善
+- 性能优化点（40分）：35 分，无明显瓶颈
+- 安全风险排查（10分）：9 分，未发现漏洞
+- 代码架构与扩展性（10分）：8 分，结构合理
+- 编码规范（5分）：4 分，命名规范
+
+## 主要工作（不超过 5 条）
+1. 实现 A
+
+## 总分：92 分
+"""
+    with patch("app.services.efficiency_llm.call_llm", return_value=fake_raw):
+        result = call_and_parse(
+            api_url="x", api_key="x", model="m",
+            author_name="A", commits_text="x", diffs=["--- a.py ---\n+x"],
+        )
+    assert result["score"] == 85
+    assert result["grade"] == "良好"
 
 
 # ── 月度 LLM 测试 ──────────────────────────────────

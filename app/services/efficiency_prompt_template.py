@@ -14,7 +14,7 @@ from typing import Optional
 # ── 标准化日度评分模板 ─────────────────────────────────
 EFFICIENCY_STANDARD_TEMPLATE = """你是一位资深的软件开发工程师，专注于代码审查。本次任务是对员工 {author_name} 在某一天提交的代码进行综合评审，并提炼当日主要工作内容。
 
-**重要：请严格按以下评分标准打分，确保评分一致性。**
+**重要：采用扣分制评分——每个维度从满分起步，仅对 diff 中可见的具体问题扣分。请严格按以下标准执行，确保评分一致性。**
 
 ---
 
@@ -131,19 +131,21 @@ EFFICIENCY_STANDARD_TEMPLATE = """你是一位资深的软件开发工程师，�
 
 ---
 
-**评分要求：**
-1. 每个维度必须给出具体分数和说明
-2. 总分 = 各维度分数之和，确保计算准确
-3. 评分基于代码实际质量，不受代码量影响
-4. 如果某个维度不适用（如无安全相关代码），给满分并说明
-5. 保持评分尺度一致：优秀(90+)、良好(75-89)、一般(60-74)、待改进(<60)
+**评分要求（扣分制）：**
+1. 每个维度从满分起步，仅在 diff 中发现具体、可指出的问题时扣分，说明中必须写明扣分原因及对应代码位置
+2. 禁止凭主观印象、推测或"可能存在的问题"扣分，只对 diff 中可见的事实扣分
+3. 未发现问题或维度不适用（如无安全相关代码）时给该维度满分，并标注"未发现问题"或"不适用"
+4. 每个维度必须给出具体分数和说明
+5. 总分 = 各维度分数之和，输出前请逐项核对加法
+6. 评分基于代码实际质量，不受代码量影响
+7. 保持评分尺度一致：优秀(90+)、良好(75-89)、一般(60-74)、待改进(<60)
 """
 
 
 # ── 标准化月度评分模板 ─────────────────────────────────
 EFFICIENCY_MONTHLY_STANDARD_TEMPLATE = """你是一位资深的软件开发工程师，需要对员工 {author_name} 在 {year_month} 月度的代码提交进行综合评审，并总结本月主要工作成果。
 
-**重要：请严格按以下评分标准打分，确保评分一致性。**
+**重要：采用扣分制评分——每个维度从满分起步，仅依据每日评分详情中明确记录的问题扣分。请严格按以下标准执行，确保评分一致性。**
 
 ---
 
@@ -223,12 +225,29 @@ EFFICIENCY_MONTHLY_STANDARD_TEMPLATE = """你是一位资深的软件开发工�
 
 ---
 
-**月度评分要求：**
-1. 基于全月数据综合评估，不受单次提交影响
-2. 关注趋势：是否有进步或退步
-3. 考虑代码量：大量提交应有更高要求
-4. 保持评分尺度一致：优秀(90+)、良好(75-89)、一般(60-74)、待改进(<60)
+**月度评分要求（扣分制）：**
+1. 每个维度从满分起步，仅依据每日评分详情中明确记录的问题扣分，说明中写明扣分依据
+2. 基于全月数据综合评估，不受单次提交影响
+3. 关注趋势：是否有进步或退步
+4. 总分 = 各维度分数之和，输出前请逐项核对加法
+5. 保持评分尺度一致：优秀(90+)、良好(75-89)、一般(60-74)、待改进(<60)
 """
+
+
+# ── 自定义内容追加段标题 ────────────────────────────────
+_CUSTOM_SECTION_HEADER = "\n\n---\n\n## 补充评分要求（管理员自定义）\n\n"
+
+
+def _safe_substitute(template: str, **values) -> str:
+    """占位符安全替换
+
+    自定义模板内容可能包含代码片段的大括号，str.format 会因此抛
+    KeyError/ValueError，故用逐个 replace 替代。
+    """
+    result = template
+    for key, value in values.items():
+        result = result.replace("{" + key + "}", str(value))
+    return result
 
 
 def get_efficiency_template(
@@ -238,16 +257,21 @@ def get_efficiency_template(
 ) -> str:
     """获取日度能效评分模板
 
+    自定义内容作为"补充评分要求"追加在标准模板之后，而非整体覆盖，
+    以保留标准评分锚点与输出格式，避免不同模型间评分差异扩大。
+
     Args:
         author_name: 员工姓名
         top_n: 工作总结条目上限
-        custom_template: 自定义模板（可选）
+        custom_template: 自定义补充要求（可选）
 
     Returns:
         格式化后的系统提示词
     """
-    template = custom_template or EFFICIENCY_STANDARD_TEMPLATE
-    return template.format(author_name=author_name, top_n=top_n)
+    template = EFFICIENCY_STANDARD_TEMPLATE
+    if custom_template and custom_template.strip():
+        template = template + _CUSTOM_SECTION_HEADER + custom_template.strip()
+    return _safe_substitute(template, author_name=author_name, top_n=top_n)
 
 
 def get_monthly_template(
@@ -258,17 +282,23 @@ def get_monthly_template(
 ) -> str:
     """获取月度能效评分模板
 
+    自定义内容作为"补充评分要求"追加在标准模板之后，而非整体覆盖，
+    以保留标准评分锚点与输出格式，避免不同模型间评分差异扩大。
+
     Args:
         author_name: 员工姓名
         year_month: 年月（如 2026-01）
         top_n: 工作总结条目上限
-        custom_template: 自定义模板（可选）
+        custom_template: 自定义补充要求（可选）
 
     Returns:
         格式化后的系统提示词
     """
-    template = custom_template or EFFICIENCY_MONTHLY_STANDARD_TEMPLATE
-    return template.format(
+    template = EFFICIENCY_MONTHLY_STANDARD_TEMPLATE
+    if custom_template and custom_template.strip():
+        template = template + _CUSTOM_SECTION_HEADER + custom_template.strip()
+    return _safe_substitute(
+        template,
         author_name=author_name,
         year_month=year_month,
         top_n=top_n,

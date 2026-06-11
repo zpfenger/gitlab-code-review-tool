@@ -65,23 +65,73 @@ def map_score_to_grade(score: Optional[int]) -> Optional[str]:
 
 # ── 解析函数 ──────────────────────────────────────────
 # 支持多种格式：总分：85分、总分: 85 分、总分85分、总得分：85分
+# 标题行优先（## 总分 / ## 月度总分），避免误抓正文中复述的"总分 100 分"等字样
+_SCORE_HEADING_PATTERN = re.compile(r"##\s*(?:月度)?总[得]?分[:：]?\s*(\d+)\s*分?")
 _SCORE_PATTERN = re.compile(r"总[得]?分[:：]?\s*(\d+)\s*分?")
+# 评分明细行：- 注释（5分）：4 分，xxx（兼容半角括号与 */- 列表符）
+_DIMENSION_LINE_PATTERN = re.compile(
+    r"^\s*[-*]\s*(.+?)[（(](\d+)\s*分[）)][:：]\s*(\d+(?:\.\d+)?)\s*分",
+    re.MULTILINE,
+)
 _WORK_HEADER_PATTERN = re.compile(r"##\s*[^\n]*?主要工作.*?\n(.+?)(?=\n##|\Z)", re.DOTALL)
 _WORK_ITEM_PATTERN = re.compile(r"^\s*(?:\d+[.、)]|\-|\*)\s*(.+?)\s*$", re.MULTILINE)
 _REVIEW_SUMMARY_PATTERN = re.compile(r"##\s*[^\n]*?评分简述.*?\n(.+?)(?=\n##|\Z)", re.DOTALL)
 
 
 def parse_score(text: str) -> int:
-    """从 LLM 输出中解析总分（0 表示未识别或超出 0-100 范围）"""
+    """从 LLM 输出中解析总分（0 表示未识别或超出 0-100 范围）
+
+    优先匹配 "## 总分" 标题行；无标题行时取最后一个 "总分：XX"
+    （总分位于输出末尾，取最后可避免误抓正文中的复述）。
+    """
     if not text:
         return 0
-    match = _SCORE_PATTERN.search(text)
-    if not match:
+    match = _SCORE_HEADING_PATTERN.search(text)
+    if match:
+        score = int(match.group(1))
+        return score if 0 <= score <= 100 else 0
+    matches = _SCORE_PATTERN.findall(text)
+    if not matches:
         # 记录无法解析的情况，便于调试
         logger.warning(f"无法从 LLM 输出中解析总分，原始内容末 200 字: ...{text[-200:]}")
         return 0
-    score = int(match.group(1))
+    score = int(matches[-1])
     return score if 0 <= score <= 100 else 0
+
+
+def parse_dimension_scores(text: str) -> List[tuple]:
+    """解析评分明细各维度分，返回 [(维度名, 得分, 满分)]
+
+    得分超出该维度满分时按满分截断，避免模型给出越界分数。
+    """
+    if not text:
+        return []
+    results = []
+    for m in _DIMENSION_LINE_PATTERN.finditer(text):
+        name = m.group(1).strip()
+        max_score = int(m.group(2))
+        score = min(float(m.group(3)), float(max_score))
+        results.append((name, score, max_score))
+    return results
+
+
+def validate_score(text: str, parsed_total: int) -> int:
+    """用评分明细之和校验总分，明细解析充分时以重算值为准
+
+    LLM 的加法经常出错，且不同模型出错方式不同；以明细重算可消除
+    算术误差和总分误抓，是跨模型一致性的最后一道防线。
+    """
+    dimensions = parse_dimension_scores(text)
+    # 明细维度过少视为解析不充分，直接信任原总分
+    if len(dimensions) < 4:
+        return parsed_total
+    recomputed = max(0, min(100, round(sum(s for _, s, _ in dimensions))))
+    if recomputed != parsed_total:
+        logger.warning(
+            f"总分校验不一致: LLM 输出 {parsed_total} 分，"
+            f"明细重算 {recomputed} 分，以重算为准"
+        )
+    return recomputed
 
 
 def parse_work_summary(text: str, top_n: int = 5) -> List[str]:
@@ -190,7 +240,7 @@ def call_llm(
     diffs: List[str],
     top_n: int = 5,
     max_tokens: int = 4096,
-    temperature: float = 0.7,
+    temperature: float = 0.0,
     timeout: int = 240,
     max_retries: int = 3,
     retry_delay: int = 10,
@@ -304,6 +354,7 @@ def call_and_parse(
     logger.debug(f"LLM 原始输出 [{author_name}]: {raw[:500]}...")
 
     score = parse_score(raw)
+    score = validate_score(raw, score)
     if score == 0:
         logger.warning(f"评分解析失败 [{author_name}]，LLM 输出可能格式不符")
 
@@ -333,7 +384,7 @@ def call_monthly_llm(
     daily_scores_summary: str,
     top_n: int = 10,
     max_tokens: int = 4096,
-    temperature: float = 0.7,
+    temperature: float = 0.0,
     timeout: int = 240,
     max_retries: int = 3,
     retry_delay: int = 10,
@@ -435,6 +486,7 @@ def call_and_parse_monthly(
     logger.debug(f"月度 LLM 原始输出 [{author_name}/{year_month}]: {raw[:500]}...")
 
     score = parse_score(raw)
+    score = validate_score(raw, score)
     if score == 0:
         logger.warning(f"月度评分解析失败 [{author_name}/{year_month}]")
 

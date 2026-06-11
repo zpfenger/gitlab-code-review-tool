@@ -240,19 +240,19 @@
             </div>
 
             <div class="form-group">
-                <label for="efficiency_prompt_template" class="form-label">能效评分提示词模板</label>
+                <label for="efficiency_prompt_template" class="form-label">能效评分补充要求</label>
                 <textarea class="form-input" id="efficiency_prompt_template"
                           name="efficiency_prompt_template" rows="6" style="font-family: var(--font-mono); height: auto; min-height: 120px; max-height: 400px; resize: vertical;"
-                          placeholder="留空使用默认提示词">{{ settings.efficiency_prompt_template or '' }}</textarea>
-                <small class="text-muted">用于日度能效评分的 LLM 提示词。需包含 <code>{top_n}</code> 占位符</small>
+                          placeholder="留空仅使用标准评分模板">{{ settings.efficiency_prompt_template or '' }}</textarea>
+                <small class="text-muted">日度能效评分的补充要求，会追加在标准评分模板之后（不覆盖标准评分锚点与输出格式）。可使用 <code>{author_name}</code>、<code>{top_n}</code> 占位符</small>
             </div>
 
             <div class="form-group">
-                <label for="efficiency_monthly_prompt_template" class="form-label">月度能效提示词模板</label>
+                <label for="efficiency_monthly_prompt_template" class="form-label">月度能效补充要求</label>
                 <textarea class="form-input" id="efficiency_monthly_prompt_template"
                           name="efficiency_monthly_prompt_template" rows="6" style="font-family: var(--font-mono); height: auto; min-height: 120px; max-height: 400px; resize: vertical;"
-                          placeholder="留空使用默认提示词">{{ settings.efficiency_monthly_prompt_template or '' }}</textarea>
-                <small class="text-muted">用于月度能效汇总的 LLM 提示词。需包含 <code>{top_n}</code>、<code>{author_name}</code>、<code>{year_month}</code> 占位符</small>
+                          placeholder="留空仅使用标准评分模板">{{ settings.efficiency_monthly_prompt_template or '' }}</textarea>
+                <small class="text-muted">月度能效汇总的补充要求，会追加在标准评分模板之后（不覆盖标准评分锚点与输出格式）。可使用 <code>{author_name}</code>、<code>{year_month}</code>、<code>{top_n}</code> 占位符</small>
             </div>
 
             <div class="form-group" style="margin-bottom: 0;">
