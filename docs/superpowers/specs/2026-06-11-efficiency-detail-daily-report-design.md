@@ -39,8 +39,9 @@
         "project": "project-a",
         "type": "daily",
         "date": "2026-06-10",
-        "author": "alice@example.com",
-        "path": "project-a/daily/2026-06-10/alice@example.com.md",
+        "author": "Alice",
+        "filename": "Alice.md",
+        "path": "project-a/daily/2026-06-10/Alice.md",
         "size": 12345
       }
     ]
@@ -55,13 +56,17 @@
 | `project` | 项目名称，用于按项目分组和展示 |
 | `type` | 固定为 `daily` |
 | `date` | 日报日期 |
-| `author` | 报告文件作者标识 |
-| `path` | 传给 `/api/reports/content` 的相对路径参数 |
+| `author` | 报告文件作者标识，即 Markdown 文件名去掉 `.md` 后的值 |
+| `filename` | 报告真实文件名，例如 `Alice.md` |
+| `path` | 传给 `/api/reports/content` 的相对路径参数，必须使用真实文件名组成 |
 | `size` | 文件大小，便于后续展示或调试 |
 
 生成规则：
 
-- 根据人员详情的 `email`、`date` 和当天 `summary.projects_involved` 查找 `data/reports/{project}/daily/{date}/` 下的 Markdown 日报。
+- 根据人员详情的 `date` 和当天 `summary.projects_involved` 查找 `data/reports/{project}/daily/{date}/` 下的 Markdown 日报。
+- 日报文件现有结构为“项目 + 日期 + 作者文件名”，作者文件名来自日报生成时的提交作者姓名，不保证等于邮箱。
+- 查找时以 `summary.author_name` 为主匹配报告文件名；同时兼容 `summary.author_email` 和邮箱前缀作为候选值，避免历史文件命名差异导致无法关联。
+- 不允许只用邮箱直接拼接报告路径；返回给前端的 `path` 必须来自实际存在的报告文件。
 - 只返回当前用户有权限查看的项目报告。
 - 每个列表项必须包含 `project` 项目名称。
 - 如果没有日报，返回空数组，不影响评分、工作总结和趋势展示。
