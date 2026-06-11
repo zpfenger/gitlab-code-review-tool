@@ -1,8 +1,10 @@
 """人员能效 API 测试"""
 import json
 import os
+import shutil
 import tempfile
 from datetime import date, datetime, timedelta
+from pathlib import Path
 
 import pytest
 from fastapi import FastAPI
@@ -11,6 +13,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from starlette.middleware.sessions import SessionMiddleware
 
+from app.api import reports as reports_api
 from app.database import Base, get_db
 from app.api.efficiency import router as efficiency_router
 from app.api.users import get_current_user_full
@@ -40,6 +43,13 @@ def db_session(engine):
     s = Session()
     yield s
     s.close()
+
+
+@pytest.fixture
+def report_dir():
+    path = Path(tempfile.mkdtemp(prefix="efficiency_reports_", dir="."))
+    yield path
+    shutil.rmtree(path, ignore_errors=True)
 
 
 @pytest.fixture
@@ -130,6 +140,12 @@ def _seed(db, email, name, d, *, score=80, commits=3, adds=100, dels=20,
         summary_top_n=5, llm_status="success",
     ))
     db.commit()
+
+
+def _write_daily_report(base_dir, project, stat_date, filename, content="report"):
+    report_dir = Path(base_dir) / project / "daily" / stat_date.isoformat()
+    report_dir.mkdir(parents=True, exist_ok=True)
+    (report_dir / filename).write_text(content, encoding="utf-8")
 
 
 # ──────────────── 用例 ────────────────
@@ -291,6 +307,120 @@ def test_project_admin_detail_uses_project_member_relation(
 
     assert resp.status_code == 200
     assert resp.json()["data"]["summary"]["author_email"] == target.email
+
+
+def test_detail_returns_daily_reports_by_project_and_author_name(
+    client, db_session, login_as_admin, report_dir, monkeypatch
+):
+    """系统管理员能看到按项目区分的日报入口，filename 使用相对路径语义。"""
+    monkeypatch.setattr(reports_api, "ALLOWED_REPORT_DIR", report_dir)
+    d = date(2026, 6, 10)
+    db_session.add_all([
+        Project(name="project-a", project_id=201, is_active=True),
+        Project(name="project-b", project_id=202, is_active=True),
+    ])
+    db_session.commit()
+    _seed(
+        db_session,
+        "alice@example.com",
+        "Alice",
+        d,
+        projects=["project-a", "project-b"],
+    )
+    _write_daily_report(report_dir, "project-a", d, "Alice.md", "a report")
+    _write_daily_report(report_dir, "project-b", d, "alice.md", "b report")
+
+    resp = client.get(
+        "/api/efficiency/detail",
+        params={"email": "alice@example.com", "date": d.isoformat()},
+    )
+
+    assert resp.status_code == 200
+    reports = resp.json()["data"]["daily_reports"]
+    assert [item["project"] for item in reports] == ["project-a", "project-b"]
+    assert reports[0]["author"] == "Alice"
+    assert reports[0]["filename"] == "project-a/daily/2026-06-10/Alice.md"
+    assert reports[1]["filename"] == "project-b/daily/2026-06-10/alice.md"
+
+
+def test_detail_daily_reports_empty_when_summary_missing(
+    client, login_as_admin, report_dir, monkeypatch
+):
+    """没有 summary 时仍返回 daily_reports 空数组，避免前端判断缺字段。"""
+    monkeypatch.setattr(reports_api, "ALLOWED_REPORT_DIR", report_dir)
+    d = date(2026, 6, 10)
+
+    resp = client.get(
+        "/api/efficiency/detail",
+        params={"email": "missing@example.com", "date": d.isoformat()},
+    )
+
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["summary"] is None
+    assert data["daily_reports"] == []
+
+
+def test_detail_daily_reports_match_full_email_but_not_email_prefix(
+    client, db_session, login_as_admin, report_dir, monkeypatch
+):
+    """邮箱完整值可匹配，邮箱前缀不能匹配，避免误关联。"""
+    monkeypatch.setattr(reports_api, "ALLOWED_REPORT_DIR", report_dir)
+    d = date(2026, 6, 10)
+    db_session.add(Project(name="project-a", project_id=203, is_active=True))
+    db_session.commit()
+    _seed(
+        db_session,
+        "zhang@example.com",
+        "Display Name",
+        d,
+        projects=["project-a"],
+    )
+    _write_daily_report(
+        report_dir, "project-a", d, "zhang@example.com.md", "email report"
+    )
+    _write_daily_report(report_dir, "project-a", d, "zhang.md", "prefix report")
+
+    resp = client.get(
+        "/api/efficiency/detail",
+        params={"email": "zhang@example.com", "date": d.isoformat()},
+    )
+
+    assert resp.status_code == 200
+    reports = resp.json()["data"]["daily_reports"]
+    assert len(reports) == 1
+    assert reports[0]["author"] == "zhang@example.com"
+    assert reports[0]["filename"] == (
+        "project-a/daily/2026-06-10/zhang@example.com.md"
+    )
+
+
+def test_detail_daily_reports_hidden_when_content_would_forbid_self_identity(
+    client, db_session, app, member_user, report_dir, monkeypatch
+):
+    """普通用户账号身份不匹配报告 stem 时，不展示点开会 403 的日报入口。"""
+    monkeypatch.setattr(reports_api, "ALLOWED_REPORT_DIR", report_dir)
+    d = date(2026, 6, 10)
+    project = Project(name="project-a", project_id=204, is_active=True)
+    db_session.add(project)
+    db_session.commit()
+    db_session.refresh(project)
+    db_session.execute(
+        project_members.insert().values(project_id=project.id, user_id=member_user.id)
+    )
+    db_session.commit()
+    _seed(db_session, member_user.email, "Zhang Peng", d, projects=["project-a"])
+    _write_daily_report(report_dir, "project-a", d, "Zhang Peng.md", "self mismatch")
+
+    app.dependency_overrides[get_current_user_full] = lambda: member_user
+    resp = client.get(
+        "/api/efficiency/detail",
+        params={"email": member_user.email, "date": d.isoformat()},
+    )
+    app.dependency_overrides.pop(get_current_user_full, None)
+
+    assert resp.status_code == 200
+    assert resp.json()["data"]["daily_reports"] == []
 
 
 # ── 区间聚合测试 ──────────────────────────

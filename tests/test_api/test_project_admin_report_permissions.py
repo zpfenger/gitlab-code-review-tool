@@ -233,6 +233,29 @@ def test_admin_can_read_content_in_managed_project(
     assert response.json()["data"]["content"] == "member content"
 
 
+def test_content_path_reads_literal_filename_with_spaces(
+    client, report_dir, monkeypatch, setup_projects_and_users, login_as_admin
+):
+    """path 模式应读取真实相对路径，不能把空格重建成下划线。"""
+    monkeypatch.setattr(reports_api, "ALLOWED_REPORT_DIR", report_dir)
+
+    target_dir = report_dir / "project-a" / "daily" / "2026-06-09"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    (target_dir / "Zhang Peng.md").write_text(
+        "space author content", encoding="utf-8"
+    )
+
+    response = client.get(
+        "/api/reports/content",
+        params={"path": "project-a/daily/2026-06-09/Zhang Peng.md"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["content"] == "space author content"
+    assert data["path"] == "project-a/daily/2026-06-09/Zhang Peng.md"
+
+
 def test_admin_cannot_read_content_in_other_project(
     client, report_dir, monkeypatch, setup_projects_and_users, login_as_admin
 ):

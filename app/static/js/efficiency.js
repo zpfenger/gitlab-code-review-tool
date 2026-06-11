@@ -560,11 +560,67 @@
             });
     }
 
+    function renderDailyReports(reports) {
+        if (!reports || !reports.length) {
+            return '<div class="text-muted small">无日报</div>';
+        }
+
+        var buttons = reports.map(function (r, idx) {
+            return '<button type="button" class="btn btn-sm btn-secondary daily-report-item" data-report-index="' + idx + '">' +
+                '<span><i class="bi bi-file-earmark-text"></i> ' + escapeHtml(r.project || '-') + '</span>' +
+                '<span class="text-muted small">' + escapeHtml(r.date || '') + '</span>' +
+                '</button>';
+        }).join('');
+
+        return '<div class="daily-report-list">' + buttons + '</div>';
+    }
+
+    function bindDailyReportLinks(reports) {
+        document.querySelectorAll('.daily-report-item[data-report-index]').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                var idx = Number(btn.dataset.reportIndex);
+                if (!Number.isNaN(idx) && reports[idx]) {
+                    openDailyReportModal(reports[idx]);
+                }
+            });
+        });
+    }
+
+    function openDailyReportModal(report) {
+        var modal = document.getElementById('dailyReportModal');
+        var title = document.getElementById('dailyReportModalTitle');
+        var body = document.getElementById('dailyReportModalBody');
+        modal.classList.add('active');
+        title.textContent = (report.project || '-') + ' / ' + (report.date || '-') + ' / ' + (report.author || '-');
+        body.innerHTML = '<div class="text-muted">加载中...</div>';
+
+        apiRequest('/api/reports/content?path=' + encodeURIComponent(report.filename || ''))
+            .then(function (resp) {
+                if (!resp || !resp.ok) {
+                    body.innerHTML = '<div class="text-danger">日报加载失败</div>';
+                    return null;
+                }
+                return resp.json();
+            })
+            .then(function (json) {
+                if (!json) return;
+                var content = json.data && json.data.content ? json.data.content : '';
+                body.innerHTML = '<div class="markdown-body">' + renderMarkdown(content || '无内容') + '</div>';
+            })
+            .catch(function () {
+                body.innerHTML = '<div class="text-danger">日报加载失败</div>';
+            });
+    }
+
+    function closeDailyReportModal() {
+        document.getElementById('dailyReportModal').classList.remove('active');
+    }
+
     function renderDrawer(data) {
         var s = data.summary || {};
         var work = s.work_summary || [];
-        var commits = data.commits || [];
         var trend = data.trend || [];
+        var dailyReports = data.daily_reports || [];
 
         var workHtml = '';
         if (work.length) {
@@ -573,16 +629,6 @@
         } else {
             workHtml = '<div class="text-muted">无</div>';
         }
-
-        var commitHtml = commits.length
-            ? commits.map(function (c) {
-                return '<li class="mb-2">' +
-                    '<code>' + c.commit_sha.substring(0, 8) + '</code> ' +
-                    '<span class="badge bg-secondary">' + escapeHtml(c.branch) + '</span> ' +
-                    '<span class="text-muted">' + c.commit_date + '</span>' +
-                    '</li>';
-            }).join('')
-            : '<li class="text-muted">无</li>';
 
         var html =
             '<div class="mb-3">' +
@@ -598,14 +644,15 @@
             '  ' + workHtml +
             '</div>' +
             '<div class="mb-3">' +
-            '  <div class="text-muted small mb-2">近 7 天趋势</div>' +
-            '  <div id="chartTrend"></div>' +
+            '  <div class="text-muted small mb-2">当前人员审查报告-日报</div>' +
+            '  ' + renderDailyReports(dailyReports) +
             '</div>' +
             '<div class="mb-3">' +
-            '  <div class="text-muted small mb-2">今日提交 (' + commits.length + ')</div>' +
-            '  <ul class="list-unstyled small">' + commitHtml + '</ul>' +
+            '  <div class="text-muted small mb-2">近 7 天趋势</div>' +
+            '  <div id="chartTrend"></div>' +
             '</div>';
         document.getElementById('drawerBody').innerHTML = html;
+        bindDailyReportLinks(dailyReports);
         renderTrendChart(trend);
     }
 
@@ -977,6 +1024,10 @@
         document.getElementById('monthlyModalClose').addEventListener('click', closeMonthlyDetailModal);
         document.getElementById('monthlyDetailModal').addEventListener('click', function (e) {
             if (e.target === this) closeMonthlyDetailModal();
+        });
+        document.getElementById('dailyReportModalClose').addEventListener('click', closeDailyReportModal);
+        document.getElementById('dailyReportModal').addEventListener('click', function (e) {
+            if (e.target === this) closeDailyReportModal();
         });
 
         // 抽屉关闭

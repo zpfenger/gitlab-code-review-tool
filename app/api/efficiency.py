@@ -19,13 +19,19 @@ from pydantic import BaseModel
 from sqlalchemy import asc, desc, func
 from sqlalchemy.orm import Session
 
+from app.api import reports as reports_api
 from app.api.deps import get_current_user_full
 from app.database import get_db, SessionLocal
 from app.models.commit_record import CommitRecord
 from app.models.employee_efficiency import EmployeeEfficiencyDaily
 from app.models.employee_efficiency_monthly import EmployeeEfficiencyMonthly
 from app.models.user import User
-from app.core.permissions import can_view_person_detail, can_view_person_detail_for_project
+from app.core.permissions import (
+    can_view_person_detail,
+    can_view_person_detail_for_project,
+    is_self_identity,
+    should_limit_to_self_for_project,
+)
 from app.models.user import project_admins, project_members
 from app.schemas.response import ApiResponse
 
@@ -504,6 +510,103 @@ def _map_score_to_grade(score):
     return "待改进"
 
 
+def _report_match_candidates(summary: EmployeeEfficiencyDaily) -> set:
+    """返回日报文件 stem 的忽略大小写精确匹配候选值。"""
+    return {
+        value.strip().lower()
+        for value in (summary.author_name, summary.author_email)
+        if value and value.strip()
+    }
+
+
+def _is_report_visible_to_current_user(
+    current_user: User,
+    project_name: str,
+    report_author: str,
+    db: Session,
+    allowed_project_names: set,
+    project_name_to_id: dict,
+) -> bool:
+    """与 /api/reports/content 保持一致的日报入口可见性判断。"""
+    if project_name not in allowed_project_names:
+        return False
+
+    proj_id = project_name_to_id.get(project_name)
+    if proj_id is not None and should_limit_to_self_for_project(
+        current_user, proj_id, db
+    ) and not is_self_identity(current_user, report_author):
+        return False
+
+    return True
+
+
+def _build_daily_reports_for_summary(
+    summary: Optional[EmployeeEfficiencyDaily],
+    current_user: User,
+    db: Session,
+) -> list:
+    """查找 summary 对应日期和项目下当前用户可打开的日报文件。"""
+    if summary is None:
+        return []
+
+    try:
+        projects = json.loads(summary.projects_involved or "[]")
+    except (TypeError, ValueError):
+        projects = []
+
+    if not projects:
+        return []
+
+    candidates = _report_match_candidates(summary)
+    if not candidates:
+        return []
+
+    allowed_project_names = reports_api._get_user_allowed_project_names(
+        current_user, db
+    )
+    project_name_to_id = reports_api._get_project_name_to_id_map(db)
+    report_date = summary.stat_date.isoformat()
+    daily_reports = []
+
+    for project_name in sorted(set(projects)):
+        try:
+            date_dir = reports_api._validate_path(
+                f"{project_name}/daily/{report_date}"
+            )
+        except HTTPException:
+            continue
+        if not date_dir.exists() or not date_dir.is_dir():
+            continue
+
+        for report_file in sorted(date_dir.glob("*.md")):
+            report_author = report_file.stem
+            if report_author.strip().lower() not in candidates:
+                continue
+            if not _is_report_visible_to_current_user(
+                current_user,
+                project_name,
+                report_author,
+                db,
+                allowed_project_names,
+                project_name_to_id,
+            ):
+                continue
+
+            relative_path = report_file.resolve().relative_to(
+                reports_api.ALLOWED_REPORT_DIR.resolve()
+            ).as_posix()
+            daily_reports.append({
+                "project": project_name,
+                "type": "daily",
+                "date": report_date,
+                "author": report_author,
+                "filename": relative_path,
+                "size": report_file.stat().st_size,
+            })
+
+    return daily_reports
+
+
 # ──────────────── /list ────────────────
 
 @router.get("/list")
@@ -703,12 +806,17 @@ async def get_detail(
         for c in commit_rows
     ]
 
+    daily_reports = _build_daily_reports_for_summary(
+        summary, current_user, db
+    )
+
     return ApiResponse(
         success=True,
         data={
             "summary": _serialize(summary) if summary else None,
             "trend": trend_data,
             "commits": commits_data,
+            "daily_reports": daily_reports,
         },
     )
 

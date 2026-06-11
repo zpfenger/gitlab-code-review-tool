@@ -45,6 +45,10 @@
                                                        text-align: left; border-bottom: 1px solid var(--color-slate-100); }
     .daily-detail-table tbody tr { cursor: pointer; }
     .daily-detail-table tbody tr:hover { background: var(--color-slate-50); }
+    .daily-report-list { display: flex; flex-direction: column; gap: var(--space-2); }
+    .daily-report-item { display: flex; align-items: center; justify-content: space-between;
+                         width: 100%; text-align: left; }
+    .daily-report-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
     /* Markdown 样式 */
     .markdown-body { font-size: var(--text-sm); line-height: 1.6; }
@@ -249,6 +253,19 @@
         <div style="padding: 0 var(--space-5) var(--space-4); display:flex; justify-content:flex-end; gap:var(--space-2);">
             <button class="btn btn-secondary" id="recomputeCancel">取消</button>
             <button class="btn btn-primary" id="recomputeConfirm">确认补算</button>
+        </div>
+    </div>
+</div>
+
+<!-- 日报详情弹窗 -->
+<div class="modal-overlay" id="dailyReportModal">
+    <div class="modal-content" style="max-width: 900px;">
+        <div class="modal-header">
+            <h5 style="margin:0; font-weight:600;" id="dailyReportModalTitle">日报详情</h5>
+            <button class="btn-close-modal" id="dailyReportModalClose">&times;</button>
+        </div>
+        <div class="modal-body" id="dailyReportModalBody">
+            <div style="color: var(--color-slate-500);">加载中...</div>
         </div>
     </div>
 </div>

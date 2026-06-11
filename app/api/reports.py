@@ -178,9 +178,12 @@ async def get_report_content(
     db: Session = Depends(get_db),
 ):
     """Get content of a specific report"""
+    literal_relative_path = None
+
     # Support path parameter or individual parameters
     if path:
         project, report_type, report_date, author = _parse_report_path(path)
+        literal_relative_path = Path(path).as_posix()
 
     if not all([project, report_type, report_date, author]):
         raise HTTPException(status_code=400, detail="Missing required parameters")
@@ -201,12 +204,14 @@ async def get_report_content(
     ) and not is_self_identity(current_user, author):
         raise HTTPException(status_code=403, detail="您没有权限查看他人的报告")
 
-    # Sanitize inputs to prevent path traversal
-    safe_project = _sanitize_filename(project)
-    safe_author = _sanitize_filename(author)
-
-    # Build relative path
-    relative_path = f"{safe_project}/{report_type}/{report_date}/{safe_author}.md"
+    if literal_relative_path is not None:
+        relative_path = literal_relative_path
+    else:
+        # Sanitize inputs to prevent path traversal
+        safe_project = _sanitize_filename(project)
+        safe_author = _sanitize_filename(author)
+        # Build relative path
+        relative_path = f"{safe_project}/{report_type}/{report_date}/{safe_author}.md"
 
     # Validate and get full path
     full_path = _validate_path(relative_path)
