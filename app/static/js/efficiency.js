@@ -802,10 +802,31 @@
     }
 
     function startRecomputePolling() {
-        console.log('[Recompute] Starting polling...');
-        toggleRecomputeProgress(true);
+        // 立即显示初始进度内容（避免空白 div）
+        showInitialRecomputeProgress();
         _pollTimer = setInterval(pollRecomputeStatus, 3000);
-        console.log('[Recompute] Polling started, timer:', _pollTimer);
+    }
+
+    function showInitialRecomputeProgress() {
+        var el = document.getElementById('recomputeProgress');
+        if (!el) return;
+        var desc = STATE.mode === 'monthly'
+            ? '正在启动月度补算...'
+            : '正在启动补算 ' + STATE.startDate + ' ~ ' + STATE.endDate + ' ...';
+        el.innerHTML =
+            '<div style="display:flex; align-items:center; gap:var(--space-3); margin-top:var(--space-2);">' +
+            '  <div style="flex:1;">' +
+            '    <div style="display:flex; justify-content:space-between; margin-bottom:2px;">' +
+            '      <span class="small text-muted">' + desc + '</span>' +
+            '      <span class="small text-muted">0%</span>' +
+            '    </div>' +
+            '    <div style="height:6px; background:var(--color-border); border-radius:3px; overflow:hidden;">' +
+            '      <div style="height:100%; width:0%; background:var(--color-primary); border-radius:3px; transition:width 0.3s;"></div>' +
+            '    </div>' +
+            '  </div>' +
+            '  <button class="btn btn-sm btn-secondary" id="btnCancelRecompute" onclick="cancelRecompute()">取消</button>' +
+            '</div>';
+        el.style.display = '';
     }
 
     function stopRecomputePolling() {
@@ -820,40 +841,18 @@
     function pollRecomputeStatus() {
         apiRequest('/api/efficiency/recompute/status')
             .then(function (r) {
-                if (!r || !r.ok) {
-                    console.warn('[Recompute] Status request failed:', r ? r.status : 'null');
-                    return null;
-                }
+                if (!r || !r.ok) return null;
                 return r.json();
             })
             .then(function (json) {
-                if (!json || !json.success) {
-                    console.warn('[Recompute] Invalid response:', json);
-                    return;
-                }
+                if (!json || !json.success) return;
                 var d = json.data || {};
-                console.log('[Recompute] Status update:', d);
-                renderRecomputeProgress(d);
 
-                if (!d.is_running) {
+                if (d.is_running) {
+                    renderRecomputeProgress(d);
+                } else {
                     stopRecomputePolling();
-                    // 显示完成通知
-                    var scope = (d.target_emails && d.target_emails.length)
-                        ? '指定人员（' + d.target_emails.length + ' 人）'
-                        : '';
-                    if (d.error) {
-                        showNotification('补算异常：' + d.error, 'danger');
-                    } else if (d.task_type === 'monthly') {
-                        showNotification(scope ? scope + '月度补算完成' : '月度补算完成', 'success');
-                    } else {
-                        var msg = (scope ? scope + ' ' : '') + '补算完成：处理 '
-                            + (d.processed || []).length + ' 天，'
-                            + '跳过 ' + (d.skipped || []).length + ' 天，'
-                            + '失败 ' + (d.failed || []).length + ' 天';
-                        showNotification(msg, 'success');
-                    }
-                    // 3 秒后隐藏进度条
-                    setTimeout(function () { toggleRecomputeProgress(false); }, 3000);
+                    renderRecomputeComplete(d);
                     loadData();
                 }
             })
@@ -864,11 +863,7 @@
 
     function toggleRecomputeProgress(show) {
         var el = document.getElementById('recomputeProgress');
-        console.log('[Recompute] toggleRecomputeProgress:', show, 'element:', el);
-        if (el) {
-            el.style.display = show ? '' : 'none';
-            console.log('[Recompute] Element display set to:', el.style.display);
-        }
+        if (el) el.style.display = show ? '' : 'none';
     }
 
     function renderRecomputeProgress(d) {
@@ -912,6 +907,49 @@
             '  </div>' +
             '  <button class="btn btn-sm btn-secondary" id="btnCancelRecompute" onclick="cancelRecompute()">取消</button>' +
             '</div>';
+    }
+
+    function renderRecomputeComplete(d) {
+        var el = document.getElementById('recomputeProgress');
+        if (!el) return;
+
+        // 构建完成摘要
+        var scope = (d.target_emails && d.target_emails.length)
+            ? '指定人员（' + d.target_emails.length + ' 人）' : '';
+        var statusText, barColor;
+        var processed = (d.processed || []).length;
+        var skipped = (d.skipped || []).length;
+        var failed = (d.failed || []).length;
+
+        if (d.error) {
+            statusText = (scope ? scope + ' ' : '') + '补算异常：' + d.error;
+            barColor = 'var(--color-error, #dc3545)';
+        } else if (failed > 0) {
+            statusText = (scope ? scope + ' ' : '') + '补算完成：处理 ' + processed + ' 天，跳过 ' + skipped + ' 天，失败 ' + failed + ' 天';
+            barColor = 'var(--color-warning, #ffc107)';
+        } else {
+            statusText = (scope ? scope + ' ' : '') + '补算完成：处理 ' + processed + ' 天，跳过 ' + skipped + ' 天';
+            barColor = 'var(--color-success, #28a745)';
+        }
+
+        // 发送通知
+        showNotification(statusText, d.error ? 'danger' : (failed > 0 ? 'warning' : 'success'));
+
+        el.innerHTML =
+            '<div style="display:flex; align-items:center; gap:var(--space-3); margin-top:var(--space-2);">' +
+            '  <div style="flex:1;">' +
+            '    <div style="display:flex; justify-content:space-between; margin-bottom:2px;">' +
+            '      <span class="small" style="color:' + barColor + ';">' + statusText + '</span>' +
+            '      <span class="small text-muted">100%</span>' +
+            '    </div>' +
+            '    <div style="height:6px; background:var(--color-border); border-radius:3px; overflow:hidden;">' +
+            '      <div style="height:100%; width:100%; background:' + barColor + '; border-radius:3px;"></div>' +
+            '    </div>' +
+            '  </div>' +
+            '</div>';
+
+        // 8 秒后隐藏进度条
+        setTimeout(function () { toggleRecomputeProgress(false); }, 8000);
     }
 
     window.cancelRecompute = function() {
@@ -976,9 +1014,12 @@
             })
             .then(function (json) {
                 if (!json || !json.success) return;
-                if (json.data && json.data.is_running) {
-                    // 有正在运行的补算任务，启动轮询
-                    startRecomputePolling();
+                var d = json.data;
+                if (d && d.is_running) {
+                    // 有正在运行的补算任务，直接渲染当前进度并启动轮询
+                    renderRecomputeProgress(d);
+                    document.getElementById('recomputeProgress').style.display = '';
+                    _pollTimer = setInterval(pollRecomputeStatus, 3000);
                 }
             })
             .catch(function () {});

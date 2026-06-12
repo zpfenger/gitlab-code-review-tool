@@ -190,15 +190,20 @@ def _existing_monthly_emails(db: Session, year_month: str, emails: set) -> set:
 
 def _run_daily_recompute(start: date, end: date, force: bool, only_emails: set | None = None):
     """后台线程：按天补算人员能效数据（only_emails 非空时仅重算指定人员）"""
+    import os
     from app.models import Settings
     from app.security import security_service
     from app.services.efficiency_aggregator import EfficiencyAggregator
     from app.services.gitlab_client import GitLabClient
 
+    pid = os.getpid()
+    logger.info(f"[recompute] 后台线程启动 pid={pid}, start={start}, end={end}, force={force}, emails={only_emails}")
+
     db = SessionLocal()
     try:
         settings = db.query(Settings).first()
         if not settings or not settings.global_gitlab_url:
+            logger.warning(f"[recompute] 配置缺失，终止 pid={pid}")
             with _recompute_lock:
                 _recompute_task["is_running"] = False
                 _recompute_task["error"] = "GitLab 全局配置缺失"
@@ -289,6 +294,7 @@ def _run_daily_recompute(start: date, end: date, force: bool, only_emails: set |
 
             current += timedelta(days=1)
 
+        logger.info(f"[recompute] 循环结束，设置 is_running=False pid={pid}")
         with _recompute_lock:
             _recompute_task["is_running"] = False
             _recompute_task["current_date"] = None
@@ -299,7 +305,7 @@ def _run_daily_recompute(start: date, end: date, force: bool, only_emails: set |
         )
 
     except Exception as ex:
-        logger.exception(f"补算任务异常: {ex}")
+        logger.exception(f"[recompute] 补算任务异常 pid={pid}: {ex}")
         with _recompute_lock:
             _recompute_task["is_running"] = False
             _recompute_task["error"] = str(ex)
@@ -943,8 +949,9 @@ async def recompute(
     current_user: User = Depends(get_current_user_full),
 ):
     """管理员手动补算指定日期范围的人员能效数据（异步执行）"""
+    import os
     logger.info(f"收到补算请求: start_date={body.start_date}, end_date={body.end_date}, "
-                f"force={body.force}, emails={body.emails}")
+                f"force={body.force}, emails={body.emails}, pid={os.getpid()}")
 
     if not current_user.is_system_admin():
         raise HTTPException(403, "仅系统管理员可补算")
@@ -1305,11 +1312,15 @@ async def recompute_status(
     current_user: User = Depends(get_current_user_full),
 ):
     """查询补算任务进度"""
+    import os
     if not current_user.is_system_admin():
         raise HTTPException(403, "仅系统管理员可查询补算状态")
 
     with _recompute_lock:
         status = dict(_recompute_task)
+
+    logger.debug(f"[recompute/status] pid={os.getpid()}, is_running={status.get('is_running')}, "
+                 f"task_type={status.get('task_type')}, processed_days={status.get('processed_days')}")
 
     return ApiResponse(success=True, data=status)
 
