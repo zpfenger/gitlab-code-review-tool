@@ -6,11 +6,11 @@ After=network.target
 Type=simple
 User=gitlab-review
 Group=gitlab-review
-WorkingDirectory=/opt/gitlab-code-review-tool
-Environment="PATH=/opt/gitlab-code-review-tool/venv/bin"
+WorkingDirectory=/mnt/python/code-review
+Environment="PATH=/mnt/python/code-review/venv/bin"
 Environment="SECRET_KEY=your-secret-key-here"
-Environment="CONFIG_PATH=/opt/gitlab-code-review-tool/config/admin.yaml"
-ExecStart=/opt/gitlab-code-review-tool/venv/bin/python run.py --host 0.0.0.0 --port 5001 --workers 1
+Environment="CONFIG_PATH=/mnt/python/code-review/config/admin.yaml"
+ExecStart=/mnt/python/code-review/venv/bin/python run.py --host 0.0.0.0 --port 5001 --workers 1
 Restart=always
 RestartSec=10
 
