@@ -27,6 +27,19 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/external", tags=["external"])
 
+_EXTERNAL_EFFICIENCY_KEYS = {
+    "id", "author_email", "author_name", "stat_date",
+    "commits_count", "additions", "deletions", "files_changed",
+    "new_files", "deleted_files", "projects_involved",
+    "review_score", "review_grade", "review_summary",
+    "work_summary", "llm_status", "llm_error",
+}
+
+
+def _serialize_external(row: EmployeeEfficiencyDaily) -> dict:
+    data = _serialize(row)
+    return {key: data[key] for key in _EXTERNAL_EFFICIENCY_KEYS}
+
 
 def _parse_date_param(value: str, param_name: str) -> date:
     """解析外部 API 日期参数，兼容 YYYY-MM-DD 和 YYYY/MM/DD。"""
@@ -149,7 +162,7 @@ def get_efficiency_list(
 
     return ApiResponse.ok(
         data={
-            "items": [_serialize(r) for r in items],
+            "items": [_serialize_external(r) for r in items],
             "total": total,
             "page": page,
             "page_size": page_size,
@@ -224,6 +237,17 @@ def get_efficiency_daily(
     else:
         rows = all_rows
 
+    if not rows:
+        return ApiResponse.ok(
+            data={
+                "date": target_date.isoformat(),
+                "generated_at": None,
+                "llm_status": "pending",
+                "message": "能效数据尚未生成，请稍后重试",
+                "items": [],
+            }
+        )
+
     # 根据记录的 llm_status 汇总
     statuses = {r.llm_status for r in rows}
     if statuses == {"success"}:
@@ -239,7 +263,7 @@ def get_efficiency_daily(
     # 构造响应
     items = []
     if overall_status == "success":
-        items = [_serialize(r) | {"code_commit_rank": rank_map.get(r.author_email, "")} for r in rows]
+        items = [_serialize_external(r) for r in rows]
 
     result = {
         "date": target_date.isoformat(),

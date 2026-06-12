@@ -301,6 +301,8 @@ async def _run_review_task(
                     report_merger=ReportMerger(),
                     svn_uploader=svn_uploader,
                     report_output_dir=str(report_output_dir),
+                    db=db,
+                    task_log_id=task_log.id,
                 )
 
                 # 解析排除分支

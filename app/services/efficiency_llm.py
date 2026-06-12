@@ -21,6 +21,7 @@ from app.services.efficiency_prompt_template import (
     get_efficiency_template,
     get_monthly_template,
 )
+from app.services.llm_usage import LLMResult, parse_usage
 
 
 # ── 用户提示词模板 ────────────────────────────────────
@@ -246,8 +247,8 @@ def call_llm(
     retry_delay: int = 10,
     review_max_tokens: int = 10000,
     custom_prompt_template: Optional[str] = None,
-) -> Optional[str]:
-    """同步调用 LLM，返回原始 markdown 文本；失败返回 None
+) -> Optional[LLMResult]:
+    """同步调用 LLM，返回原始 markdown 文本和 usage；失败返回 None
 
     Args:
         diffs: 按文件分隔的 diff 列表，每项格式 "--- {path} ---\n{diff}"
@@ -293,8 +294,9 @@ def call_llm(
                 content = (data.get("choices", [{}])[0]
                               .get("message", {})
                               .get("content"))
+                usage = parse_usage(data, model)
                 if content:
-                    return content
+                    return LLMResult(content=content, usage=usage)
                 logger.warning("LLM 返回空内容")
                 return None
         except httpx.TimeoutException:
@@ -338,16 +340,23 @@ def call_and_parse(
             "success": bool,
         }
     """
-    raw = call_llm(
+    raw_result = call_llm(
         api_url=api_url, api_key=api_key, model=model,
         author_name=author_name, commits_text=commits_text,
         diffs=diffs, top_n=top_n, **llm_kwargs,
     )
+    usage = None
+    if isinstance(raw_result, LLMResult):
+        raw = raw_result.content
+        usage = raw_result.usage
+    else:
+        raw = raw_result
+
     if raw is None:
         return {
             "raw": None, "score": 0, "grade": None,
             "work_summary": [], "review_summary": "",
-            "success": False,
+            "success": False, "usage": None,
         }
 
     # 记录 LLM 原始输出，便于调试解析问题
@@ -365,6 +374,7 @@ def call_and_parse(
         "work_summary": parse_work_summary(raw, top_n=top_n),
         "review_summary": parse_review_summary(raw),
         "success": True,
+        "usage": usage,
     }
 
 

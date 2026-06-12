@@ -19,6 +19,7 @@ from app.api.efficiency import router as efficiency_router
 from app.api.users import get_current_user_full
 from app.models.employee_efficiency import EmployeeEfficiencyDaily
 from app.models.project import Project
+from app.models.token_usage import TokenUsageLog
 from app.models.user import User, Role, project_admins, project_members
 from app.security import security_service
 
@@ -168,6 +169,38 @@ def test_list_default_yesterday(client, db_session, login_as_admin):
     data = body["data"]
     assert len(data["items"]) == 2
     assert data["team_stats"]["person_count"] == 2
+
+
+def test_list_includes_token_usage(client, db_session, login_as_admin):
+    """人员能效列表返回每条记录的 token 消耗"""
+    yesterday = date.today() - timedelta(days=1)
+    _seed(db_session, "a@b.com", "Alice", yesterday, score=85)
+    row = db_session.query(EmployeeEfficiencyDaily).filter_by(
+        author_email="a@b.com",
+        stat_date=yesterday,
+    ).one()
+    db_session.add(TokenUsageLog(
+        biz_type="efficiency",
+        biz_id=row.id,
+        project_name="proj-a",
+        author="Alice",
+        model="gpt-4",
+        prompt_tokens=20,
+        completion_tokens=10,
+        total_tokens=30,
+        created_at_ts=int(datetime.now().timestamp()),
+    ))
+    db_session.commit()
+
+    resp = client.get("/api/efficiency/list")
+
+    assert resp.status_code == 200
+    item = resp.json()["data"]["items"][0]
+    assert item["token_usage"] == {
+        "prompt_tokens": 20,
+        "completion_tokens": 10,
+        "total_tokens": 30,
+    }
 
 
 def test_list_sort_by_score(client, db_session, login_as_admin):

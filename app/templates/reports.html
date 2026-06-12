@@ -107,6 +107,9 @@
                                                 {% elif file_info.type == 'monthly' %}
                                                 <span class="badge badge-info" style="margin-left: var(--space-1);">月报</span>
                                                 {% endif %}
+                                                {% if file_info.token_usage and file_info.token_usage.total_tokens %}
+                                                <span class="badge badge-gray" style="margin-left: var(--space-1);">{{ file_info.token_usage.total_tokens }} token</span>
+                                                {% endif %}
                                             </a>
                                             {% if project_name in writable_project_names %}
                                             <button class="btn btn-sm" onclick="confirmDeleteReport('{{ project_name }}', '{{ file_info.type }}', '{{ date }}', '{{ author }}', '{{ file_info.filename }}')" title="删除报告">

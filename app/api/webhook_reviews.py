@@ -20,6 +20,7 @@ from app.core.permissions import (
 from app.models.project import Project
 from app.schemas.response import ApiResponse
 from app.api.deps import get_current_user_full
+from app.services.llm_usage import aggregate_token_usage_by_biz, empty_token_totals
 
 router = APIRouter(prefix="/api/webhook-reviews", tags=["webhook-reviews"])
 
@@ -122,6 +123,10 @@ async def list_webhook_reviews(
         .limit(page_size)
         .all()
     )
+    token_biz_type = "webhook_mr" if review_type == "mr" else "webhook_push"
+    token_totals = aggregate_token_usage_by_biz(
+        db, token_biz_type, [item.id for item in items]
+    )
 
     # 转为字典
     records = []
@@ -136,6 +141,7 @@ async def list_webhook_reviews(
             "review_result": item.review_result,
             "additions": item.additions,
             "deletions": item.deletions,
+            "token_usage": token_totals.get(item.id, empty_token_totals()),
         }
         if review_type == "mr":
             record["source_branch"] = item.source_branch
@@ -310,6 +316,11 @@ async def get_webhook_review_detail(
         "review_result": item.review_result,
         "additions": item.additions,
         "deletions": item.deletions,
+        "token_usage": aggregate_token_usage_by_biz(
+            db,
+            "webhook_mr" if review_type == "mr" else "webhook_push",
+            [item.id],
+        ).get(item.id, empty_token_totals()),
     }
     if review_type == "mr":
         record["source_branch"] = item.source_branch

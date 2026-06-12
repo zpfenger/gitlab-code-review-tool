@@ -5,6 +5,8 @@ from typing import List, Dict, Optional, Any
 import httpx
 from loguru import logger
 
+from app.services.llm_usage import LLMResult, parse_usage
+
 
 class CodeReviewer:
     """LLM 代码审查服务"""
@@ -78,7 +80,7 @@ class CodeReviewer:
         diff: str,
         prompt_template: str = None,
         system_prompt: str = None
-    ) -> Optional[str]:
+    ) -> Optional[LLMResult]:
         """
         审查代码差异
 
@@ -88,7 +90,7 @@ class CodeReviewer:
             system_prompt: 系统提示
 
         Returns:
-            Optional[str]: 审查结果，失败返回 None
+            Optional[LLMResult]: 审查结果和 token usage，失败返回 None
         """
         if not diff or not diff.strip():
             logger.warning("代码差异为空，跳过审查")
@@ -146,10 +148,11 @@ class CodeReviewer:
 
                 data = response.json()
                 content = data.get("choices", [{}])[0].get("message", {}).get("content")
+                usage = parse_usage(data, self.model)
 
                 if content:
                     logger.info(f"代码审查完成")
-                    return content
+                    return LLMResult(content=content, usage=usage)
                 else:
                     logger.warning("API 返回空内容")
                     return None
@@ -177,7 +180,7 @@ class CodeReviewer:
         commit_info: Dict[str, Any],
         diffs: List[Dict[str, Any]],
         prompt_template: str = None
-    ) -> Optional[str]:
+    ) -> Optional[LLMResult]:
         """
         审查单个提交
 
@@ -187,7 +190,7 @@ class CodeReviewer:
             prompt_template: 提示词模板
 
         Returns:
-            Optional[str]: 审查结果
+            Optional[LLMResult]: 审查结果
         """
         # 格式化差异
         formatted_diff = self._format_diff(diffs)
@@ -231,7 +234,7 @@ class CodeReviewer:
         commits: List[Dict[str, Any]],
         diffs: List[Dict[str, Any]],
         prompt_template: str = None
-    ) -> Optional[str]:
+    ) -> Optional[LLMResult]:
         """
         按作者审查多个提交的汇总
 
@@ -242,7 +245,7 @@ class CodeReviewer:
             prompt_template: 提示词模板
 
         Returns:
-            Optional[str]: 审查结果
+            Optional[LLMResult]: 审查结果
         """
         if not diffs:
             logger.warning(f"作者 {author} 无代码差异，跳过审查")

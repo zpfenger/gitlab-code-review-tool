@@ -140,13 +140,14 @@
                         <th style="min-width:140px;">提交信息</th>
                         <th style="min-width:80px;">代码变更</th>
                         <th style="min-width:55px;">评分</th>
+                        <th style="min-width:90px;">Token 消耗</th>
                         <th style="min-width:90px;">时间</th>
                         <th style="width: 100px;">操作</th>
                     </tr>
                 </thead>
                 <tbody id="reviewTableBody">
                     <tr>
-                        <td colspan="8" style="text-align: center; color: var(--color-slate-500); padding: var(--space-8);">加载中...</td>
+                        <td colspan="9" style="text-align: center; color: var(--color-slate-500); padding: var(--space-8);">加载中...</td>
                     </tr>
                 </tbody>
             </table>
@@ -221,6 +222,15 @@ let currentType = 'mr';
 let currentPage = 1;
 let charts = {};
 
+function formatTokenUsage(usage, detailed = false) {
+    if (!usage || !usage.total_tokens) return '-';
+    const total = Number(usage.total_tokens || 0).toLocaleString('zh-CN');
+    if (!detailed) return total;
+    const prompt = Number(usage.prompt_tokens || 0).toLocaleString('zh-CN');
+    const completion = Number(usage.completion_tokens || 0).toLocaleString('zh-CN');
+    return `${total} <span class="text-muted small">(${prompt}/${completion})</span>`;
+}
+
 function switchTab(type) {
     currentType = type;
     currentPage = 1;
@@ -265,7 +275,7 @@ async function loadData() {
 function renderTable(items) {
     const tbody = document.getElementById('reviewTableBody');
     if (!items || items.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--color-slate-500);">暂无数据</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; color: var(--color-slate-500);">暂无数据</td></tr>';
         return;
     }
     tbody.innerHTML = items.map(item => {
@@ -283,6 +293,7 @@ function renderTable(items) {
             <td style="text-align: left;"><span class="text-truncate" title="${(item.commit_messages || '').replace(/"/g, '&quot;')}">${commits}${(item.commit_messages||'').length > 50 ? '...' : ''}</span></td>
             <td style="white-space:nowrap;"><span class="delta-add">+${item.additions || 0}</span> <span class="delta-del">-${item.deletions || 0}</span></td>
             <td><span class="score-badge ${scoreClass}">${item.score || 0}</span></td>
+            <td>${formatTokenUsage(item.token_usage, true)}</td>
             <td><small title="${timeStr}">${timeStr.substring(5, 16)}</small></td>
             <td>
                 <div style="display: flex; gap: var(--space-1); justify-content: center;">
@@ -341,13 +352,16 @@ async function showDetail(id) {
         if (typeof marked !== 'undefined') {
             const markdown = result.data.review_result || '无审查结果';
             const rawHtml = marked.parse(markdown);
+            const tokenHtml = `<div class="mb-3"><strong>Token 消耗:</strong> ${formatTokenUsage(result.data.token_usage, true)}</div>`;
             if (typeof DOMPurify !== 'undefined') {
-                body.innerHTML = DOMPurify.sanitize(rawHtml, { USE_PROFILES: { html: true } });
+                body.innerHTML = tokenHtml + DOMPurify.sanitize(rawHtml, { USE_PROFILES: { html: true } });
             } else {
-                body.textContent = markdown;
+                body.innerHTML = tokenHtml;
+                body.appendChild(document.createTextNode(markdown));
             }
         } else {
-            body.textContent = result.data.review_result || '无审查结果';
+            body.innerHTML = `<div class="mb-3"><strong>Token 消耗:</strong> ${formatTokenUsage(result.data.token_usage, true)}</div>`;
+            body.appendChild(document.createTextNode(result.data.review_result || '无审查结果'));
         }
         openModal('reviewDetailModal');
     } catch (e) {

@@ -1,0 +1,295 @@
+{% extends "base.html" %}
+
+{% block title %}Token 统计 - 代码审查工具{% endblock %}
+
+{% block extra_css %}
+<style>
+    .token-chart { height: 300px; }
+    .token-total { font-family: var(--font-mono); font-weight: 600; }
+    .token-split { color: var(--color-slate-500); font-size: var(--text-xs); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1 class="page-title">Token 统计</h1>
+        <p class="page-subtitle">LLM 调用消耗明细与趋势</p>
+    </div>
+</div>
+
+<div class="stats-grid" style="margin-bottom: var(--space-4);">
+    <div class="stat-card primary">
+        <div class="stat-icon"><i class="bi bi-cpu"></i></div>
+        <div class="stat-value" id="sumTotal">-</div>
+        <div class="stat-label">总消耗</div>
+    </div>
+    <div class="stat-card success">
+        <div class="stat-icon"><i class="bi bi-box-arrow-in-right"></i></div>
+        <div class="stat-value" id="sumPrompt">-</div>
+        <div class="stat-label">输入 Token</div>
+    </div>
+    <div class="stat-card warning">
+        <div class="stat-icon"><i class="bi bi-box-arrow-right"></i></div>
+        <div class="stat-value" id="sumCompletion">-</div>
+        <div class="stat-label">输出 Token</div>
+    </div>
+    <div class="stat-card info">
+        <div class="stat-icon"><i class="bi bi-calendar-day"></i></div>
+        <div class="stat-value" id="sumToday">-</div>
+        <div class="stat-label">今日消耗</div>
+    </div>
+    <div class="stat-card dark">
+        <div class="stat-icon"><i class="bi bi-calendar3"></i></div>
+        <div class="stat-value" id="sumMonth">-</div>
+        <div class="stat-label">本月消耗</div>
+    </div>
+</div>
+
+<div class="panel" style="margin-bottom: var(--space-4);">
+    <div class="panel-heading">
+        <div class="panel-title"><i class="bi bi-funnel"></i> 筛选</div>
+    </div>
+    <div class="panel-body">
+        <div class="filter-form">
+            <div class="form-group">
+                <label for="filterStartDate">开始日期</label>
+                <input type="date" class="form-input" id="filterStartDate">
+            </div>
+            <div class="form-group">
+                <label for="filterEndDate">结束日期</label>
+                <input type="date" class="form-input" id="filterEndDate">
+            </div>
+            <div class="form-group">
+                <label for="filterBizType">业务类型</label>
+                <select class="form-input form-select" id="filterBizType">
+                    <option value="">全部</option>
+                    <option value="report">审查报告</option>
+                    <option value="webhook_mr">Webhook MR</option>
+                    <option value="webhook_push">Webhook Push</option>
+                    <option value="efficiency">人员能效</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="filterModel">模型</label>
+                <input type="text" class="form-input" id="filterModel" placeholder="模型名">
+            </div>
+            <div class="form-group">
+                <label for="filterProject">项目</label>
+                <input type="text" class="form-input" id="filterProject" placeholder="项目名称">
+            </div>
+            <div class="form-group">
+                <label>&nbsp;</label>
+                <button class="btn btn-primary" onclick="reloadTokenUsage()">
+                    <i class="bi bi-search"></i> 查询
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); margin-bottom: var(--space-4);">
+    <div class="panel">
+        <div class="panel-heading">
+            <div class="panel-title"><i class="bi bi-pie-chart"></i> 业务类型</div>
+        </div>
+        <div class="panel-body token-chart">
+            <canvas id="bizChart"></canvas>
+        </div>
+    </div>
+    <div class="panel">
+        <div class="panel-heading">
+            <div class="panel-title"><i class="bi bi-bar-chart"></i> 模型消耗</div>
+        </div>
+        <div class="panel-body token-chart">
+            <canvas id="modelChart"></canvas>
+        </div>
+    </div>
+</div>
+
+<div class="panel" style="margin-bottom: var(--space-4);">
+    <div class="panel-heading">
+        <div class="panel-title"><i class="bi bi-graph-up"></i> 按天趋势</div>
+    </div>
+    <div class="panel-body token-chart">
+        <canvas id="trendChart"></canvas>
+    </div>
+</div>
+
+<div class="panel">
+    <div class="panel-heading">
+        <div class="panel-title"><i class="bi bi-table"></i> 消耗明细</div>
+    </div>
+    <div class="panel-body" style="padding: 0;">
+        <div style="overflow-x: auto;">
+            <table class="app-table-list">
+                <thead>
+                    <tr>
+                        <th style="min-width: 140px;">时间</th>
+                        <th style="min-width: 100px;">业务类型</th>
+                        <th style="min-width: 90px;">业务 ID</th>
+                        <th style="min-width: 130px;">项目</th>
+                        <th style="min-width: 100px;">人员</th>
+                        <th style="min-width: 120px;">模型</th>
+                        <th style="min-width: 90px;">Prompt</th>
+                        <th style="min-width: 110px;">Completion</th>
+                        <th style="min-width: 90px;">Total</th>
+                    </tr>
+                </thead>
+                <tbody id="tokenUsageBody">
+                    <tr><td colspan="9" class="text-center text-muted py-4">加载中...</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <div class="pagination-wrapper">
+            <div class="pagination-info" id="tokenPaginationInfo"></div>
+            <div class="pagination-controls" id="tokenPaginationLinks"></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="/static/vendor/chartjs/chart.umd.min.js"></script>
+<script>
+let tokenPage = 1;
+let tokenCharts = {};
+
+function fmtNumber(value) {
+    return Number(value || 0).toLocaleString('zh-CN');
+}
+
+function getTokenParams(includePage) {
+    const params = new URLSearchParams();
+    const startDate = document.getElementById('filterStartDate').value;
+    const endDate = document.getElementById('filterEndDate').value;
+    const bizType = document.getElementById('filterBizType').value;
+    const model = document.getElementById('filterModel').value.trim();
+    const project = document.getElementById('filterProject').value.trim();
+    if (startDate) params.set('start_date', startDate);
+    if (endDate) params.set('end_date', endDate);
+    if (bizType) params.set('biz_type', bizType);
+    if (model) params.set('model', model);
+    if (project) params.set('project_name', project);
+    if (includePage) {
+        params.set('page', tokenPage);
+        params.set('page_size', 20);
+    }
+    return params;
+}
+
+function reloadTokenUsage() {
+    tokenPage = 1;
+    loadTokenStats();
+    loadTokenList();
+}
+
+async function loadTokenStats() {
+    const resp = await apiRequest('/api/token-usage/stats?' + getTokenParams(false).toString());
+    if (!resp) return;
+    const result = await resp.json();
+    if (!result.success) return;
+    const data = result.data;
+
+    document.getElementById('sumTotal').textContent = fmtNumber(data.summary.total_tokens);
+    document.getElementById('sumPrompt').textContent = fmtNumber(data.summary.prompt_tokens);
+    document.getElementById('sumCompletion').textContent = fmtNumber(data.summary.completion_tokens);
+    document.getElementById('sumToday').textContent = fmtNumber(data.today.total_tokens);
+    document.getElementById('sumMonth').textContent = fmtNumber(data.month.total_tokens);
+    renderTokenCharts(data);
+}
+
+async function loadTokenList() {
+    const resp = await apiRequest('/api/token-usage?' + getTokenParams(true).toString());
+    if (!resp) return;
+    const result = await resp.json();
+    if (!result.success) return;
+    renderTokenTable(result.data.items || []);
+    renderTokenPagination(result.data);
+}
+
+function renderTokenTable(items) {
+    const body = document.getElementById('tokenUsageBody');
+    if (!items.length) {
+        body.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-4">暂无数据</td></tr>';
+        return;
+    }
+    body.innerHTML = items.map(item => {
+        const time = new Date(item.created_at_ts * 1000).toLocaleString('zh-CN', { hour12: false });
+        return `<tr>
+            <td><small>${time}</small></td>
+            <td>${item.biz_type || '-'}</td>
+            <td>${item.biz_id || '-'}</td>
+            <td style="text-align:left;"><span class="text-truncate-sm" title="${item.project_name || ''}">${item.project_name || '-'}</span></td>
+            <td>${item.author || '-'}</td>
+            <td>${item.model || '-'}</td>
+            <td class="token-total">${fmtNumber(item.prompt_tokens)}</td>
+            <td class="token-total">${fmtNumber(item.completion_tokens)}</td>
+            <td class="token-total">${fmtNumber(item.total_tokens)}</td>
+        </tr>`;
+    }).join('');
+}
+
+function renderTokenPagination(data) {
+    document.getElementById('tokenPaginationInfo').innerHTML = `共 <b>${data.total}</b> 条记录`;
+    const links = document.getElementById('tokenPaginationLinks');
+    if (data.pages <= 1) {
+        links.innerHTML = '';
+        return;
+    }
+    let html = '';
+    const prev = data.page - 1;
+    const next = data.page + 1;
+    html += `<span class="page-link ${data.page <= 1 ? 'disabled' : ''}" onclick="goTokenPage(${prev})">上一页</span>`;
+    for (let i = Math.max(1, data.page - 2); i <= Math.min(data.pages, data.page + 2); i++) {
+        html += `<span class="page-link ${i === data.page ? 'active' : ''}" onclick="goTokenPage(${i})">${i}</span>`;
+    }
+    html += `<span class="page-link ${data.page >= data.pages ? 'disabled' : ''}" onclick="goTokenPage(${next})">下一页</span>`;
+    links.innerHTML = html;
+}
+
+function goTokenPage(page) {
+    if (page < 1) return;
+    tokenPage = page;
+    loadTokenList();
+}
+
+function renderTokenCharts(data) {
+    Object.values(tokenCharts).forEach(chart => chart.destroy());
+    tokenCharts = {};
+    const colors = ['#2f80ed', '#27ae60', '#f2994a', '#eb5757', '#9b51e0', '#00a6a6'];
+
+    tokenCharts.biz = new Chart(document.getElementById('bizChart'), {
+        type: 'doughnut',
+        data: {
+            labels: data.by_biz_type.map(row => row.biz_type),
+            datasets: [{ data: data.by_biz_type.map(row => row.total_tokens), backgroundColor: colors }]
+        },
+        options: { responsive: true, maintainAspectRatio: false }
+    });
+
+    tokenCharts.model = new Chart(document.getElementById('modelChart'), {
+        type: 'bar',
+        data: {
+            labels: data.by_model.map(row => row.model),
+            datasets: [{ label: 'Total Token', data: data.by_model.map(row => row.total_tokens), backgroundColor: colors }]
+        },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+    });
+
+    tokenCharts.trend = new Chart(document.getElementById('trendChart'), {
+        type: 'line',
+        data: {
+            labels: data.daily_trend.map(row => row.date),
+            datasets: [
+                { label: 'Prompt', data: data.daily_trend.map(row => row.prompt_tokens), borderColor: '#2f80ed', backgroundColor: 'transparent', tension: 0.25 },
+                { label: 'Completion', data: data.daily_trend.map(row => row.completion_tokens), borderColor: '#27ae60', backgroundColor: 'transparent', tension: 0.25 },
+            ]
+        },
+        options: { responsive: true, maintainAspectRatio: false }
+    });
+}
+
+document.addEventListener('DOMContentLoaded', reloadTokenUsage);
+</script>
+{% endblock %}

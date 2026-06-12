@@ -5,6 +5,7 @@ from typing import List, Dict, Optional
 import httpx
 from loguru import logger
 
+from app.services.llm_usage import LLMResult, parse_usage
 from app.services.truncate_utils import truncate_text
 
 
@@ -85,11 +86,11 @@ class WebhookReviewer:
         self.review_max_tokens = review_max_tokens
         self.system_prompt = _build_system_prompt(review_style, custom_prompt)
 
-    def review_and_strip_code(self, changes_text: str, commits_text: str = "") -> str:
+    def review_and_strip_code(self, changes_text: str, commits_text: str = "") -> LLMResult:
         """审查代码并返回结果（同步）"""
         if not changes_text:
             logger.info("代码变更为空，跳过审查")
-            return "代码为空"
+            return LLMResult(content="代码为空", usage=None)
 
         changes_text = _truncate_text(changes_text, self.review_max_tokens)
 
@@ -105,15 +106,15 @@ class WebhookReviewer:
 
         result = self._call_llm(messages)
         if not result:
-            return "LLM 调用失败，未能完成审查"
+            return LLMResult(content="LLM 调用失败，未能完成审查", usage=None)
 
-        result = result.strip()
+        content = result.strip()
         # 去除 markdown 代码块包裹
-        if result.startswith("```markdown") and result.endswith("```"):
-            result = result[11:-3].strip()
-        return result
+        if content.startswith("```markdown") and content.endswith("```"):
+            content = content[11:-3].strip()
+        return LLMResult(content=content, usage=result.usage)
 
-    def _call_llm(self, messages: List[Dict[str, str]]) -> Optional[str]:
+    def _call_llm(self, messages: List[Dict[str, str]]) -> Optional[LLMResult]:
         """同步调用 LLM API（带重试）"""
         import time
 
@@ -140,9 +141,10 @@ class WebhookReviewer:
                         .get("message", {})
                         .get("content")
                     )
+                    usage = parse_usage(data, self.model)
                     if content:
                         logger.info("Webhook 代码审查完成")
-                        return content
+                        return LLMResult(content=content, usage=usage)
                     logger.warning("LLM 返回空内容")
                     return None
 

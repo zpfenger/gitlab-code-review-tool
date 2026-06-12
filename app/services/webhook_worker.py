@@ -20,6 +20,7 @@ from app.services.webhook_handler import (
 )
 from app.services.webhook_reviewer import WebhookReviewer
 from app.services.notifier import Notifier
+from app.services.llm_usage import LLMResult, record_token_usage
 
 
 def _build_reviewer(settings: Settings) -> WebhookReviewer:
@@ -87,6 +88,28 @@ def _resolve_project_for_webhook(db, webhook_data: dict) -> Optional[Project]:
         return db.query(Project).filter(Project.name == project_name).first()
 
     return None
+
+
+def _llm_content(result) -> str:
+    if isinstance(result, LLMResult):
+        return result.content or ""
+    return result or ""
+
+
+def _llm_usage(result):
+    return result.usage if isinstance(result, LLMResult) else None
+
+
+def _record_webhook_token_usage(db, biz_type: str, review_log, usage) -> None:
+    record_token_usage(
+        db=db,
+        biz_type=biz_type,
+        biz_id=review_log.id,
+        project_name=review_log.project_name,
+        author=review_log.author,
+        usage=usage,
+        created_at_ts=review_log.updated_at,
+    )
 
 
 def handle_merge_request_event(
@@ -201,7 +224,8 @@ def handle_merge_request_event(
         # 调用 LLM 审查
         reviewer = _build_reviewer(settings)
         commits_text = ";".join(c.get("title", "") for c in commits)
-        review_result = reviewer.review_and_strip_code(str(changes), commits_text)
+        llm_result = reviewer.review_and_strip_code(str(changes), commits_text)
+        review_result = _llm_content(llm_result)
         score = WebhookReviewer.parse_review_score(review_result)
 
         # 回写 GitLab notes
@@ -240,6 +264,7 @@ def handle_merge_request_event(
         db.add(log)
         try:
             db.commit()
+            db.refresh(log)
         except IntegrityError as e:
             db.rollback()
             msg = str(getattr(e, "orig", e)).lower()
@@ -247,6 +272,12 @@ def handle_merge_request_event(
                 logger.info(f"MR last_commit_id {last_commit_id} 并发重复，跳过")
                 return
             raise
+        _record_webhook_token_usage(
+            db=db,
+            biz_type="webhook_mr",
+            review_log=log,
+            usage=_llm_usage(llm_result),
+        )
         logger.info(f"MR 审查完成: {project_name}, 评分: {score}")
 
     except Exception as e:
@@ -328,11 +359,13 @@ def handle_push_event(webhook_data: dict, gitlab_token: str, gitlab_url: str):
         score = 0
         additions = 0
         deletions = 0
+        llm_result = None
 
         if changes:
             commits_text = ";".join(c.get("message", "").strip() for c in commits)
             reviewer = _build_reviewer(settings)
-            review_result = reviewer.review_and_strip_code(str(changes), commits_text)
+            llm_result = reviewer.review_and_strip_code(str(changes), commits_text)
+            review_result = _llm_content(llm_result)
             score = WebhookReviewer.parse_review_score(review_result)
             additions = sum(c.get("additions", 0) for c in changes)
             deletions = sum(c.get("deletions", 0) for c in changes)
@@ -371,6 +404,7 @@ def handle_push_event(webhook_data: dict, gitlab_token: str, gitlab_url: str):
         db.add(log)
         try:
             db.commit()
+            db.refresh(log)
         except IntegrityError as e:
             db.rollback()
             msg = str(getattr(e, "orig", e)).lower()
@@ -378,6 +412,12 @@ def handle_push_event(webhook_data: dict, gitlab_token: str, gitlab_url: str):
                 logger.info(f"Push last_commit_id {last_commit_id} 并发重复，跳过")
                 return
             raise
+        _record_webhook_token_usage(
+            db=db,
+            biz_type="webhook_push",
+            review_log=log,
+            usage=_llm_usage(llm_result),
+        )
         logger.info(f"Push 审查完成: {project_name}, 评分: {score}")
 
     except Exception as e:

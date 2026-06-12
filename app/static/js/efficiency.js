@@ -59,6 +59,11 @@
         return '<span class="grade-badge ' + cls + '">' + (grade || '-') + '</span>';
     }
 
+    function formatTokenUsage(usage) {
+        if (!usage || !usage.total_tokens) return '-';
+        return String(usage.total_tokens).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    }
+
     function escapeHtml(s) {
         if (s == null) return '';
         return String(s).replace(/[&<>"']/g, function (c) {
@@ -189,7 +194,7 @@
 
     // ── 渲染：表格 ───────────────────────────────
     function renderEmpty(msg) {
-        var cols = STATE.mode === 'daily' ? 9 : 10;
+        var cols = STATE.mode === 'daily' ? 10 : 11;
         document.getElementById('efficiencyTbody').innerHTML =
             '<tr><td colspan="' + cols + '" class="text-center text-muted py-4">' + msg + '</td></tr>';
     }
@@ -214,6 +219,7 @@
                 '<td>' + escapeHtml(it.files_changed) + '</td>' +
                 '<td>' + (it.review_score != null ? escapeHtml(it.review_score) : '-') + '</td>' +
                 '<td>' + gradeBadge(it.review_grade) + '</td>' +
+                '<td>' + escapeHtml(formatTokenUsage(it.token_usage)) + '</td>' +
                 '<td><span class="text-muted small">' +
                 escapeHtml((it.projects_involved || []).join('，')) + '</span></td>' +
                 '</tr>';
@@ -253,6 +259,7 @@
                 '<td>' + escapeHtml(it.files_changed) + '</td>' +
                 '<td>' + (it.review_score != null ? escapeHtml(it.review_score) : '-') + '</td>' +
                 '<td>' + gradeBadge(it.review_grade) + '</td>' +
+                '<td>' + escapeHtml(formatTokenUsage(it.token_usage)) + '</td>' +
                 '<td><span class="text-muted small">' +
                 escapeHtml((it.projects_involved || []).join('，')) + '</span></td>' +
                 '</tr>';
@@ -369,6 +376,7 @@
                 '<td>' + escapeHtml(d.files_changed) + '</td>' +
                 '<td>' + (d.review_score != null ? escapeHtml(d.review_score) : '-') + '</td>' +
                 '<td>' + gradeBadge(d.review_grade) + '</td>' +
+                '<td>' + escapeHtml(formatTokenUsage(d.token_usage)) + '</td>' +
                 '</tr>';
         }).join('');
 
@@ -376,7 +384,7 @@
             '<div class="text-muted small mb-2">区间每日明细（点击行查看详情）</div>' +
             '<table class="daily-detail-table">' +
             '<thead><tr>' +
-            '<th>日期</th><th>提交</th><th>新增</th><th>删除</th><th>文件</th><th>评分</th><th>等级</th>' +
+            '<th>日期</th><th>提交</th><th>新增</th><th>删除</th><th>文件</th><th>评分</th><th>等级</th><th>Token</th>' +
             '</tr></thead>' +
             '<tbody>' + tableRows + '</tbody></table>';
 
@@ -634,6 +642,7 @@
             '<div class="mb-3">' +
             '  <strong>综合评分:</strong> ' + (s.review_score != null ? escapeHtml(s.review_score) : '-') +
             '  ' + gradeBadge(s.review_grade) +
+            '  <span class="text-muted" style="margin-left:var(--space-2);">Token: ' + escapeHtml(formatTokenUsage(s.token_usage)) + '</span>' +
             '</div>' +
             '<div class="mb-3">' +
             '  <div class="text-muted small">评分简述</div>' +
@@ -968,6 +977,7 @@
                 '<th style="min-width:70px;" data-sort="files_changed">文件 <i class="bi bi-arrow-down-up sort-icon"></i></th>' +
                 '<th style="min-width:70px;" data-sort="score" class="sorted">评分 <i class="bi bi-arrow-down-up sort-icon"></i></th>' +
                 '<th style="min-width:70px;">等级</th>' +
+                '<th style="min-width:90px;">Token 消耗</th>' +
                 '<th style="min-width:140px;">涉及项目</th>';
         } else {
             thead.innerHTML =
@@ -979,6 +989,7 @@
                 '<th style="min-width:70px;" data-sort="files_changed">文件 <i class="bi bi-arrow-down-up sort-icon"></i></th>' +
                 '<th style="min-width:70px;" data-sort="score" class="sorted">评分 <i class="bi bi-arrow-down-up sort-icon"></i></th>' +
                 '<th style="min-width:70px;">等级</th>' +
+                '<th style="min-width:90px;">Token 消耗</th>' +
                 '<th style="min-width:140px;">涉及项目</th>';
         }
         bindSort();

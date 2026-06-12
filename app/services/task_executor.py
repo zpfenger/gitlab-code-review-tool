@@ -11,6 +11,7 @@ from app.services.code_reviewer import CodeReviewer
 from app.services.stats_generator import StatsGenerator
 from app.services.report_merger import ReportMerger
 from app.services.svn_uploader import SVNUploader
+from app.services.llm_usage import LLMResult, record_token_usage
 
 
 class TaskExecutor:
@@ -23,7 +24,9 @@ class TaskExecutor:
         stats_generator: StatsGenerator,
         report_merger: ReportMerger,
         svn_uploader: Optional[SVNUploader] = None,
-        report_output_dir: str = "./data/reports"
+        report_output_dir: str = "./data/reports",
+        db: Optional[Any] = None,
+        task_log_id: Optional[int] = None,
     ):
         """
         初始化任务执行器
@@ -42,8 +45,37 @@ class TaskExecutor:
         self.report_merger = report_merger
         self.svn_uploader = svn_uploader
         self.report_output_dir = Path(report_output_dir)
+        self.db = db
+        self.task_log_id = task_log_id
         self.is_running = False
         self._progress: Dict[str, Any] = {}
+
+    @staticmethod
+    def _extract_llm_content(result) -> Optional[str]:
+        if isinstance(result, LLMResult):
+            return result.content
+        if hasattr(result, "content"):
+            return result.content
+        return result
+
+    def _record_report_usage(
+        self,
+        *,
+        project_name: str,
+        author: str,
+        result,
+    ) -> None:
+        usage = result.usage if isinstance(result, LLMResult) else None
+        if self.db is None or self.task_log_id is None:
+            return
+        record_token_usage(
+            db=self.db,
+            biz_type="report",
+            biz_id=self.task_log_id,
+            project_name=project_name,
+            author=author,
+            usage=usage,
+        )
 
     async def run_daily_review(
         self,
@@ -244,7 +276,15 @@ class TaskExecutor:
             f"提交数={len(commits)}, 差异文件数={len(all_diffs)}, "
             f"差异总字节={sum(len(d.get('diff', '')) for d in all_diffs)}"
         )
-        review_content = await self.code_reviewer.review_commit(commits[0], all_diffs, prompt_template=prompt_template)
+        review_result = await self.code_reviewer.review_commit(
+            commits[0], all_diffs, prompt_template=prompt_template
+        )
+        self._record_report_usage(
+            project_name=project_name,
+            author=author,
+            result=review_result,
+        )
+        review_content = self._extract_llm_content(review_result)
         if not review_content:
             review_content = "# 审查报告\n\n无需审查的内容"
 
@@ -425,11 +465,17 @@ class TaskExecutor:
                     system_prompt = (
                         f"你是代码审查周报汇总专家。请对 {author} 本周的代码审查日报进行综合分析。"
                     )
-                    weekly_summary = await self.code_reviewer.review(
+                    weekly_result = await self.code_reviewer.review(
                         diff=combined,
                         prompt_template=prompt,
                         system_prompt=system_prompt
                     )
+                    self._record_report_usage(
+                        project_name=project_name,
+                        author=author,
+                        result=weekly_result,
+                    )
+                    weekly_summary = self._extract_llm_content(weekly_result)
 
                     if not weekly_summary:
                         weekly_summary = "# 周报汇总\n\n本周无需汇总的内容"

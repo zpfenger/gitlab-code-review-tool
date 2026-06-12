@@ -2,12 +2,13 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 from typing import Optional, List, Tuple
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 import re
 from app.database import get_db
 from app.models import User
 from app.models.project import Project
+from app.models.task_log import TaskLog
 from app.api.deps import get_current_user, get_current_user_obj
 from app.api.deps import get_current_user_full
 from app.api.projects import _check_project_permission
@@ -18,6 +19,7 @@ from app.core.permissions import (
     should_limit_to_self_for_project,
 )
 from app.schemas.response import ApiResponse
+from app.services.llm_usage import aggregate_token_usage_by_biz, empty_token_totals
 
 
 def get_authenticated_user(request: Request, db: Session = Depends(get_db)) -> User:
@@ -58,6 +60,59 @@ def _sanitize_filename(name: str) -> str:
     """Sanitize filename to prevent path traversal and invalid characters"""
     # Only allow alphanumeric, underscore, hyphen, and dot
     return re.sub(r'[^\w\-.]', '_', name)
+
+
+def _candidate_task_dates(report_date: str) -> set[str]:
+    """Return likely TaskLog start dates for a report directory name."""
+    dates = set()
+    try:
+        if "_to_" in report_date:
+            _start, end = report_date.split("_to_", 1)
+            end_date = date.fromisoformat(end)
+            dates.add(end_date.isoformat())
+            dates.add((end_date + timedelta(days=1)).isoformat())
+        else:
+            day = date.fromisoformat(report_date)
+            dates.add(day.isoformat())
+            dates.add((day + timedelta(days=1)).isoformat())
+    except ValueError:
+        return dates
+    return dates
+
+
+def _sum_report_token_usage(
+    db: Session,
+    project_name: str,
+    report_type: str,
+    report_date: str,
+) -> dict:
+    candidate_dates = _candidate_task_dates(report_date)
+    if not candidate_dates:
+        return empty_token_totals()
+
+    task_rows = (
+        db.query(TaskLog.id, TaskLog.start_time)
+        .filter(
+            TaskLog.project_name == project_name,
+            TaskLog.task_type == report_type,
+        )
+        .all()
+    )
+    task_ids = [
+        row.id for row in task_rows
+        if row.start_time and row.start_time.date().isoformat() in candidate_dates
+    ]
+    if not task_ids:
+        return empty_token_totals()
+
+    totals = aggregate_token_usage_by_biz(db, "report", task_ids)
+    summary = empty_token_totals()
+    for task_id in task_ids:
+        usage = totals.get(task_id, empty_token_totals())
+        summary["prompt_tokens"] += usage["prompt_tokens"]
+        summary["completion_tokens"] += usage["completion_tokens"]
+        summary["total_tokens"] += usage["total_tokens"]
+    return summary
 
 
 @router.get("")
@@ -134,6 +189,12 @@ async def list_reports(
                             "author": file_author,
                             "filename": str(report_file.relative_to(ALLOWED_REPORT_DIR)),
                             "size": report_file.stat().st_size,
+                            "token_usage": _sum_report_token_usage(
+                                db,
+                                project_dir.name,
+                                type_dir.name,
+                                date_dir.name,
+                            ),
                         })
     except Exception as e:
         return ApiResponse.fail(code="LIST_ERROR", message=f"Failed to list reports: {str(e)}")

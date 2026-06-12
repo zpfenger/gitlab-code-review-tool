@@ -7,7 +7,9 @@ import pytest
 
 from app.models.employee_efficiency import EmployeeEfficiencyDaily
 from app.models.project import Project
+from app.models.token_usage import TokenUsageLog
 from app.services.efficiency_aggregator import EfficiencyAggregator
+from app.services.llm_usage import TokenUsage
 
 
 def _make_commit(sha, author_email, author_name, additions=10, deletions=2):
@@ -251,3 +253,49 @@ def test_upsert_idempotent(db_session, gitlab_client_factory, llm_mock):
 
     rows = db_session.query(EmployeeEfficiencyDaily).all()
     assert len(rows) == 1
+
+
+def test_successful_llm_usage_is_recorded(db_session, gitlab_client_factory):
+    """LLM 成功且返回 usage 时，记录 efficiency token 消耗"""
+    project = Project(name="proj-a", project_id=1, gitlab_url="http://gl",
+                       is_active=True)
+    db_session.add(project)
+    db_session.commit()
+
+    commits = {"main": [_make_commit("sha1", "a@b.com", "Alice")]}
+    diffs = {"sha1": [{"diff": "+a", "new_path": "x", "old_path": "x",
+                       "new_file": False, "deleted_file": False, "renamed_file": False}]}
+    client = gitlab_client_factory(commits, diffs)
+    usage = TokenUsage(
+        model="gpt-4",
+        prompt_tokens=20,
+        completion_tokens=10,
+        total_tokens=30,
+    )
+
+    with patch("app.services.efficiency_aggregator.call_and_parse") as m:
+        m.return_value = {
+            "raw": "mock raw output",
+            "score": 85,
+            "grade": "良好",
+            "work_summary": ["实现 A"],
+            "review_summary": "整体质量良好",
+            "success": True,
+            "usage": usage,
+        }
+        agg = EfficiencyAggregator(
+            db=db_session,
+            gitlab_client_factory=lambda p: client,
+            llm_config={"api_url": "x", "api_key": "x", "model": "m"},
+        )
+        agg.aggregate(date(2026, 5, 27))
+
+    efficiency_row = db_session.query(EmployeeEfficiencyDaily).one()
+    usage_row = db_session.query(TokenUsageLog).one()
+    assert usage_row.biz_type == "efficiency"
+    assert usage_row.biz_id == efficiency_row.id
+    assert usage_row.project_name == "proj-a"
+    assert usage_row.author == "Alice"
+    assert usage_row.prompt_tokens == 20
+    assert usage_row.completion_tokens == 10
+    assert usage_row.total_tokens == 30

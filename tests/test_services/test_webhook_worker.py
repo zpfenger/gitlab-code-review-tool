@@ -1,5 +1,9 @@
 from app.models.project import Project
+from app.models.token_usage import TokenUsageLog
+from app.models.webhook_review import MrReviewLog
+from app.services.llm_usage import TokenUsage
 from app.services.webhook_worker import _resolve_project_for_webhook
+from app.services.webhook_worker import _record_webhook_token_usage
 
 
 def _create_project(db_session, *, name: str, project_id: int) -> Project:
@@ -69,6 +73,44 @@ class TestResolveProjectForWebhook:
         resolved = _resolve_project_for_webhook(db_session, webhook_data)
 
         assert resolved is project_by_path
+
+
+def test_record_webhook_token_usage_persists_after_review_log_commit(db_session):
+    log = MrReviewLog(
+        project_name="project-a",
+        author="Alice",
+        source_branch="feature",
+        target_branch="main",
+        updated_at=1_780_000_000,
+        commit_messages="feat",
+        score=80,
+        review_result="ok",
+        additions=1,
+        deletions=0,
+        last_commit_id="sha1",
+    )
+    db_session.add(log)
+    db_session.commit()
+    db_session.refresh(log)
+
+    _record_webhook_token_usage(
+        db=db_session,
+        biz_type="webhook_mr",
+        review_log=log,
+        usage=TokenUsage(
+            model="gpt-4",
+            prompt_tokens=10,
+            completion_tokens=5,
+            total_tokens=15,
+        ),
+    )
+
+    usage_row = db_session.query(TokenUsageLog).one()
+    assert usage_row.biz_type == "webhook_mr"
+    assert usage_row.biz_id == log.id
+    assert usage_row.project_name == "project-a"
+    assert usage_row.author == "Alice"
+    assert usage_row.total_tokens == 15
 
     def test_resolve_prioritize_nested_project_id_over_top_level_project_id(
         self, db_session

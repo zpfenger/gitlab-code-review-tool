@@ -34,6 +34,7 @@ from app.core.permissions import (
 )
 from app.models.user import project_admins, project_members
 from app.schemas.response import ApiResponse
+from app.services.llm_usage import aggregate_token_usage_by_biz, empty_token_totals
 
 router = APIRouter(prefix="/api/efficiency", tags=["efficiency"])
 
@@ -345,7 +346,11 @@ def _check_can_view_detail_for_user(
 
 # ──────────────── 序列化 ────────────────
 
-def _serialize(row: EmployeeEfficiencyDaily, can_view_detail: bool = True) -> dict:
+def _serialize(
+    row: EmployeeEfficiencyDaily,
+    can_view_detail: bool = True,
+    token_usage: Optional[dict] = None,
+) -> dict:
     return {
         "id": row.id,
         "author_email": row.author_email,
@@ -367,6 +372,7 @@ def _serialize(row: EmployeeEfficiencyDaily, can_view_detail: bool = True) -> di
         "llm_status": row.llm_status,
         "llm_error": row.llm_error,
         "can_view_detail": can_view_detail,
+        "token_usage": token_usage or empty_token_totals(),
     }
 
 
@@ -415,6 +421,9 @@ def _list_range_aggregated(
 ):
     """区间模式：按 author_email 聚合统计"""
     rows = base_query.all()
+    token_totals = aggregate_token_usage_by_biz(
+        db, "efficiency", [r.id for r in rows]
+    )
 
     # 按 author_email 分组聚合
     grouped = {}
@@ -430,6 +439,7 @@ def _list_range_aggregated(
                 "files_changed": 0,
                 "scores": [],
                 "projects": set(),
+                "token_usage": empty_token_totals(),
             }
         g = grouped[email]
         g["commits_count"] += r.commits_count or 0
@@ -438,6 +448,10 @@ def _list_range_aggregated(
         g["files_changed"] += r.files_changed or 0
         if r.review_score is not None and r.review_score > 0:
             g["scores"].append(r.review_score)
+        usage = token_totals.get(r.id, empty_token_totals())
+        g["token_usage"]["prompt_tokens"] += usage["prompt_tokens"]
+        g["token_usage"]["completion_tokens"] += usage["completion_tokens"]
+        g["token_usage"]["total_tokens"] += usage["total_tokens"]
         try:
             g["projects"].update(json.loads(r.projects_involved or "[]"))
         except (ValueError, TypeError):
@@ -463,6 +477,7 @@ def _list_range_aggregated(
             "review_grade": _map_score_to_grade(avg_score),
             "projects_involved": sorted(g["projects"]),
             "can_view_detail": can_view,
+            "token_usage": g["token_usage"],
         })
 
     # 排序
@@ -684,12 +699,21 @@ async def list_efficiency(
 
     # 为每个人员检查是否可以查看详情
     serialized_items = []
+    token_totals = aggregate_token_usage_by_biz(
+        db, "efficiency", [r.id for r in items]
+    )
     for r in items:
         projects_list = json.loads(r.projects_involved or "[]")
         can_view = _check_can_view_detail_for_user(
             current_user, r.author_email, db, projects_list
         )
-        serialized_items.append(_serialize(r, can_view_detail=can_view))
+        serialized_items.append(
+            _serialize(
+                r,
+                can_view_detail=can_view,
+                token_usage=token_totals.get(r.id),
+            )
+        )
 
     return ApiResponse(
         success=True,
@@ -740,7 +764,13 @@ async def get_detail(
             .order_by(EmployeeEfficiencyDaily.stat_date.asc())
             .all()
         )
-        daily_items = [_serialize(r) for r in daily_rows]
+        token_totals = aggregate_token_usage_by_biz(
+            db, "efficiency", [r.id for r in daily_rows]
+        )
+        daily_items = [
+            _serialize(r, token_usage=token_totals.get(r.id))
+            for r in daily_rows
+        ]
         return ApiResponse(
             success=True,
             data={"daily_items": daily_items},
@@ -809,11 +839,19 @@ async def get_detail(
     daily_reports = _build_daily_reports_for_summary(
         summary, current_user, db
     )
+    summary_token_usage = None
+    if summary:
+        summary_token_usage = aggregate_token_usage_by_biz(
+            db, "efficiency", [summary.id]
+        ).get(summary.id)
 
     return ApiResponse(
         success=True,
         data={
-            "summary": _serialize(summary) if summary else None,
+            "summary": (
+                _serialize(summary, token_usage=summary_token_usage)
+                if summary else None
+            ),
             "trend": trend_data,
             "commits": commits_data,
             "daily_reports": daily_reports,

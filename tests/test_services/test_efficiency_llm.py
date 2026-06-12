@@ -8,6 +8,7 @@ from app.services.efficiency_llm import (
     call_and_parse, build_monthly_system_prompt, build_monthly_user_prompt,
     call_and_parse_monthly,
 )
+from app.services.llm_usage import LLMResult, TokenUsage
 
 
 # ── 评分解析 ─────────────────────────────────────
@@ -250,6 +251,31 @@ def test_call_and_parse_returns_parsed_fields_on_success():
     assert result["grade"] == "优秀"
     assert result["work_summary"] == ["实现 A", "修复 B"]
     assert "代码质量优秀" in result["review_summary"]
+
+
+def test_call_and_parse_includes_usage_from_llm_result():
+    fake_raw = """## 评分简述
+代码质量优秀。
+
+## 总分：92 分
+"""
+    usage = TokenUsage(
+        model="gpt-4",
+        prompt_tokens=30,
+        completion_tokens=12,
+        total_tokens=42,
+    )
+    with patch(
+        "app.services.efficiency_llm.call_llm",
+        return_value=LLMResult(content=fake_raw, usage=usage),
+    ):
+        result = call_and_parse(
+            api_url="x", api_key="x", model="m",
+            author_name="A", commits_text="x", diffs=["--- a.py ---\n+x"],
+        )
+
+    assert result["success"] is True
+    assert result["usage"] == usage
 
 
 def test_call_and_parse_recomputes_score_from_details():

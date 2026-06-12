@@ -4,6 +4,7 @@ import pytest
 from unittest.mock import Mock, patch, AsyncMock
 import httpx
 from app.services.code_reviewer import CodeReviewer
+from app.services.llm_usage import LLMResult
 
 
 class TestCodeReviewer:
@@ -77,6 +78,38 @@ index 1234567..abcdefg 100644
             assert result is not None
             assert "代码审查结果" in result
             mock_post.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_review_success_includes_token_usage(self, reviewer, sample_diff, sample_prompt):
+        """成功审查时返回 LLMResult 并携带 usage"""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "choices": [
+                {"message": {"content": "审查完成"}}
+            ],
+            "usage": {
+                "prompt_tokens": 10,
+                "completion_tokens": 5,
+                "total_tokens": 15,
+            },
+        }
+        mock_response.raise_for_status = Mock()
+
+        with patch.object(reviewer.client, 'post', new_callable=AsyncMock) as mock_post:
+            mock_post.return_value = mock_response
+
+            result = await reviewer.review(
+                diff=sample_diff,
+                prompt_template=sample_prompt,
+            )
+
+        assert isinstance(result, LLMResult)
+        assert result.content == "审查完成"
+        assert result.usage.prompt_tokens == 10
+        assert result.usage.completion_tokens == 5
+        assert result.usage.total_tokens == 15
+        assert result.usage.model == "gpt-4"
 
     @pytest.mark.asyncio
     async def test_review_with_custom_system_prompt(self, reviewer, sample_diff):

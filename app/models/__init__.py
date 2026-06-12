@@ -7,6 +7,7 @@ from app.models.webhook_review import MrReviewLog, PushReviewLog
 from app.models.user import User, Role, user_roles, project_admins, project_members
 from app.models.employee_efficiency import EmployeeEfficiencyDaily
 from app.models.employee_efficiency_monthly import EmployeeEfficiencyMonthly
+from app.models.token_usage import TokenUsageLog
 
 __all__ = [
     'BaseModel', 'TimestampMixin',
@@ -15,4 +16,5 @@ __all__ = [
     'User', 'Role', 'user_roles', 'project_admins', 'project_members',
     'EmployeeEfficiencyDaily',
     'EmployeeEfficiencyMonthly',
+    'TokenUsageLog',
 ]

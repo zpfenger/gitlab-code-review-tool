@@ -32,6 +32,7 @@ from app.core.permissions import is_self_identity, should_limit_to_self_for_proj
 # Import API routers
 from app.api import auth, projects, settings as settings_api, tasks, logs, reports
 from app.api import webhook, webhook_reviews, users, roles, efficiency, external
+from app.api import token_usage
 from app.api.projects import _filter_projects_by_permission
 from app.core.permissions import get_writable_project_ids
 
@@ -177,6 +178,7 @@ app.include_router(users.router)
 app.include_router(roles.router)
 app.include_router(efficiency.router)
 app.include_router(external.router)
+app.include_router(token_usage.router)
 
 
 # Template context processor
@@ -432,6 +434,27 @@ async def settings_page(request: Request):
         db.close()
 
 
+@app.get("/token-usage", response_class=HTMLResponse)
+async def token_usage_page(request: Request):
+    """Token usage statistics page - 仅系统管理员可访问"""
+    user = request.session.get("user")
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+
+    db = SessionLocal()
+    try:
+        db_user = db.query(User).options(joinedload(User.roles)).filter(User.username == user).first()
+        if not db_user or not db_user.is_system_admin():
+            return RedirectResponse(url="/", status_code=302)
+        return templates.TemplateResponse(
+            request,
+            "token_usage.html",
+            get_template_context(request),
+        )
+    finally:
+        db.close()
+
+
 @app.get("/logs", response_class=HTMLResponse)
 async def logs_page(
     request: Request,
@@ -636,6 +659,9 @@ async def reports_page(
                                 'filename': report_file.name,
                                 'path': str(report_file.relative_to(REPORT_DIR)),
                                 'type': dir_type,
+                                'token_usage': reports._sum_report_token_usage(
+                                    db, project_name, dir_type, date_str
+                                ),
                             }
 
                         # 过滤后无文件则跳过
@@ -890,6 +916,8 @@ def run_scheduled_task(task_type: str = 'daily'):
                     report_merger=merger,
                     svn_uploader=svn_uploader,
                     report_output_dir=str(REPORT_DIR),
+                    db=db,
+                    task_log_id=task_log.id,
                 )
 
                 # 解析排除分支（JSON 格式）

@@ -20,6 +20,7 @@ from app.models.employee_efficiency import EmployeeEfficiencyDaily
 from app.models.project import Project
 from app.services.diff_utils import count_diff_lines
 from app.services.efficiency_llm import call_and_parse
+from app.services.llm_usage import record_token_usage
 
 
 class EfficiencyAggregator:
@@ -240,9 +241,22 @@ class EfficiencyAggregator:
                 llm_error="LLM call failed or returned empty",
             )
 
+        row = existing
         if existing:
             for k, v in values.items():
                 setattr(existing, k, v)
         else:
-            self.db.add(EmployeeEfficiencyDaily(**values))
+            row = EmployeeEfficiencyDaily(**values)
+            self.db.add(row)
         self.db.commit()
+        self.db.refresh(row)
+
+        if llm_result["success"]:
+            record_token_usage(
+                db=self.db,
+                biz_type="efficiency",
+                biz_id=row.id,
+                project_name=", ".join(sorted(data["projects"]))[:200],
+                author=data["author_name"],
+                usage=llm_result.get("usage"),
+            )
