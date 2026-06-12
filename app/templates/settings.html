@@ -34,7 +34,7 @@
                     <label for="global_gitlab_token" class="form-label">全局 Access Token</label>
                     <div style="display: flex; gap: var(--space-2);">
                         <input type="password" class="form-input" id="global_gitlab_token"
-                               name="global_gitlab_token" placeholder="留空保持原值">
+                               name="global_gitlab_token" placeholder="留空保持原值" autocomplete="new-password">
                         <button class="btn btn-secondary" type="button" onclick="testGitLab()" style="white-space: nowrap;">
                             <i class="bi bi-plug"></i> 测试
                         </button>
@@ -63,7 +63,7 @@
                     <label for="llm_api_key" class="form-label">API Key</label>
                     <div style="display: flex; gap: var(--space-2);">
                         <input type="password" class="form-input" id="llm_api_key"
-                               name="llm_api_key" placeholder="留空保持原值">
+                               name="llm_api_key" placeholder="留空保持原值" autocomplete="new-password">
                         <button class="btn btn-secondary" type="button" onclick="testLLM()" style="white-space: nowrap;">
                             <i class="bi bi-plug"></i> 测试
                         </button>
@@ -148,7 +148,7 @@
                 <div class="form-group">
                     <label for="global_svn_password" class="form-label">密码</label>
                     <input type="password" class="form-input" id="global_svn_password"
-                           name="global_svn_password" placeholder="留空保持原值">
+                           name="global_svn_password" placeholder="留空保持原值" autocomplete="new-password">
                 </div>
             </div>
         </div>
@@ -375,7 +375,7 @@
                         <label for="gitlab_sync_default_password" class="form-label">新建账号初始密码</label>
                         <input type="password" class="form-input" id="gitlab_sync_default_password"
                                name="gitlab_sync_default_password"
-                               placeholder="留空保持原值">
+                               placeholder="留空保持原值" autocomplete="new-password">
                         <small class="text-muted">仅用于同步时新建的账号，已有账号密码不变</small>
                     </div>
                 </div>

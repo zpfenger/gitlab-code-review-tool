@@ -266,7 +266,7 @@
                 </div>
                 <div style="margin-top: var(--space-4);">
                     <label for="svn_password" class="form-label">SVN 密码</label>
-                    <input type="password" class="form-input" id="svn_password" name="svn_password">
+                    <input type="password" class="form-input" id="svn_password" name="svn_password" autocomplete="new-password">
                 </div>
             </div>
 
@@ -288,7 +288,7 @@
                         <label for="wecom_webhook_url" class="form-label">Webhook URL</label>
                         <div style="display: flex; gap: var(--space-2);">
                             <input type="password" class="form-input" id="wecom_webhook_url"
-                                   name="wecom_webhook_url" placeholder="企业微信机器人 Webhook URL">
+                                   name="wecom_webhook_url" placeholder="企业微信机器人 Webhook URL" autocomplete="new-password">
                             <button class="btn btn-secondary" type="button"
                                     onclick="testProjectNotify('wecom_webhook_url')" style="white-space: nowrap;">
                                 <i class="bi bi-send"></i> 测试
