@@ -8,9 +8,9 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
-    <link href="/static/vendor/bootstrap-icons/bootstrap-icons.css" rel="stylesheet">
-    <link rel="icon" href="/static/favicon.ico" type="image/x-icon">
+    <link href="/static/vendor/bootstrap/css/bootstrap.min.css?v={{ static_version }}" rel="stylesheet">
+    <link href="/static/vendor/bootstrap-icons/bootstrap-icons.css?v={{ static_version }}" rel="stylesheet">
+    <link rel="icon" href="/static/favicon.ico?v={{ static_version }}" type="image/x-icon">
     <style>
         body, button, input, select, textarea {
             font: 12px "微软雅黑";
@@ -274,14 +274,14 @@
 <div class="login-orange-ui">
     <div class="login-top" style="padding-top: calc(100vh/2 - 355px);">
         <div class="bg">
-            <div class="left"><img src="/static/images/login/login-logo-white.svg" style="height: 45px;"></div>
-            <div class="right"><img src="/static/images/login/title.svg" height="30" alt=""></div>
+            <div class="left"><img src="/static/images/login/login-logo-white.svg?v={{ static_version }}" style="height: 45px;"></div>
+            <div class="right"><img src="/static/images/login/title.svg?v={{ static_version }}" height="30" alt=""></div>
         </div>
     </div>
     <!-- 右侧登录卡片 -->
     <div class="login-input">
         <!--banner-->
-        <div class="bg"><img src="/static/images/login/banner-login2026h1.jpg" alt=""></div>
+        <div class="bg"><img src="/static/images/login/banner-login2026h1.jpg?v={{ static_version }}" alt=""></div>
         <!--登录区-->
         <div class="login-edit">
             <form method="post" id="loginForm" action="/login" novalidate="novalidate">
@@ -310,7 +310,7 @@
     </div>
 </div>
 
-<script src="/static/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+<script src="/static/vendor/bootstrap/js/bootstrap.bundle.min.js?v={{ static_version }}"></script>
 <script>
     document.getElementById('loginForm').addEventListener('submit', async function(e) {
         e.preventDefault();

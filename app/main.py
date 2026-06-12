@@ -47,6 +47,9 @@ SECRET_KEY = os.environ.get('SECRET_KEY', security_service.secret_key)
 # Global scheduler instance
 scheduler: Optional[ReviewScheduler] = None
 
+# 静态文件版本号（每次启动服务时更新，避免浏览器缓存）
+STATIC_VERSION = str(int(datetime.now().timestamp()))
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -208,6 +211,7 @@ def get_template_context(request: Request) -> dict:
     return {
         "current_user": user,
         "display_name": display_name,
+        "static_version": STATIC_VERSION,
     }
 
 

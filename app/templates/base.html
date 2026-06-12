@@ -7,10 +7,10 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
-    <link href="/static/vendor/bootstrap-icons/bootstrap-icons.css" rel="stylesheet">
-    <link rel="icon" href="/static/favicon.ico" type="image/x-icon">
-    <link href="/static/css/style.css" rel="stylesheet">
+    <link href="/static/vendor/bootstrap/css/bootstrap.min.css?v={{ static_version }}" rel="stylesheet">
+    <link href="/static/vendor/bootstrap-icons/bootstrap-icons.css?v={{ static_version }}" rel="stylesheet">
+    <link rel="icon" href="/static/favicon.ico?v={{ static_version }}" type="image/x-icon">
+    <link href="/static/css/style.css?v={{ static_version }}" rel="stylesheet">
     {% block extra_css %}{% endblock %}
 </head>
 <body>
@@ -186,9 +186,9 @@
     {% block login_content %}{% endblock %}
     {% endif %}
 
-    <script src="/static/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
-    <script src="/static/vendor/marked/marked.min.js"></script>
-    <script src="/static/js/app.js"></script>
+    <script src="/static/vendor/bootstrap/js/bootstrap.bundle.min.js?v={{ static_version }}"></script>
+    <script src="/static/vendor/marked/marked.min.js?v={{ static_version }}"></script>
+    <script src="/static/js/app.js?v={{ static_version }}"></script>
 
     {% if current_user %}
     <script>

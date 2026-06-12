@@ -150,7 +150,7 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="/static/vendor/chartjs/chart.umd.min.js"></script>
+<script src="/static/vendor/chartjs/chart.umd.min.js?v={{ static_version }}"></script>
 <script>
 let tokenPage = 1;
 let tokenCharts = {};

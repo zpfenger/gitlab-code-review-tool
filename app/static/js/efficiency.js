@@ -790,8 +790,10 @@
     }
 
     function startRecomputePolling() {
+        console.log('[Recompute] Starting polling...');
         toggleRecomputeProgress(true);
         _pollTimer = setInterval(pollRecomputeStatus, 3000);
+        console.log('[Recompute] Polling started, timer:', _pollTimer);
     }
 
     function stopRecomputePolling() {
@@ -806,12 +808,19 @@
     function pollRecomputeStatus() {
         apiRequest('/api/efficiency/recompute/status')
             .then(function (r) {
-                if (!r || !r.ok) return null;
+                if (!r || !r.ok) {
+                    console.warn('[Recompute] Status request failed:', r ? r.status : 'null');
+                    return null;
+                }
                 return r.json();
             })
             .then(function (json) {
-                if (!json || !json.success) return;
+                if (!json || !json.success) {
+                    console.warn('[Recompute] Invalid response:', json);
+                    return;
+                }
                 var d = json.data || {};
+                console.log('[Recompute] Status update:', d);
                 renderRecomputeProgress(d);
 
                 if (!d.is_running) {
@@ -839,7 +848,11 @@
 
     function toggleRecomputeProgress(show) {
         var el = document.getElementById('recomputeProgress');
-        if (el) el.style.display = show ? '' : 'none';
+        console.log('[Recompute] toggleRecomputeProgress:', show, 'element:', el);
+        if (el) {
+            el.style.display = show ? '' : 'none';
+            console.log('[Recompute] Element display set to:', el.style.display);
+        }
     }
 
     function renderRecomputeProgress(d) {
