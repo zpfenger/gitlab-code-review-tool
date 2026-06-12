@@ -227,3 +227,52 @@ def test_json_defensive_parsing(session, llm_mock):
     # 不应抛异常
     result = agg.aggregate("2026-05")
     assert result["authors_total"] == 1
+
+
+def test_aggregate_only_emails_filters(session, llm_mock):
+    """only_emails 指定单人时，仅聚合该人"""
+    _seed_daily(session, "alice@b.com", "Alice", date(2026, 5, 1), score=80)
+    _seed_daily(session, "carol@b.com", "Carol", date(2026, 5, 1), score=70)
+
+    agg = EfficiencyMonthlyAggregator(
+        db=session,
+        llm_config={"api_url": "x", "api_key": "x", "model": "m"},
+        llm_interval=0,
+    )
+    result = agg.aggregate("2026-05", only_emails={"alice@b.com"})
+
+    assert result["authors_total"] == 1
+    rows = session.query(EmployeeEfficiencyMonthly).all()
+    assert len(rows) == 1
+    assert rows[0].author_email == "alice@b.com"
+
+
+def test_aggregate_only_emails_case_insensitive(session, llm_mock):
+    """only_emails 为小写，daily 表邮箱含大写时仍匹配"""
+    _seed_daily(session, "Alice@B.com", "Alice", date(2026, 5, 1), score=80)
+
+    agg = EfficiencyMonthlyAggregator(
+        db=session,
+        llm_config={"api_url": "x", "api_key": "x", "model": "m"},
+        llm_interval=0,
+    )
+    result = agg.aggregate("2026-05", only_emails={"alice@b.com"})
+
+    assert result["authors_total"] == 1
+    rows = session.query(EmployeeEfficiencyMonthly).all()
+    assert len(rows) == 1
+
+
+def test_aggregate_only_emails_none_writes_all(session, llm_mock):
+    """only_emails=None（默认）聚合全部作者（向后兼容回归）"""
+    _seed_daily(session, "alice@b.com", "Alice", date(2026, 5, 1), score=80)
+    _seed_daily(session, "carol@b.com", "Carol", date(2026, 5, 1), score=70)
+
+    agg = EfficiencyMonthlyAggregator(
+        db=session,
+        llm_config={"api_url": "x", "api_key": "x", "model": "m"},
+        llm_interval=0,
+    )
+    result = agg.aggregate("2026-05")
+
+    assert result["authors_total"] == 2

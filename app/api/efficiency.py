@@ -58,6 +58,7 @@ _recompute_task = {
     "skipped": [],
     "failed": [],
     "cancelled": False,
+    "target_emails": [],      # 指定人员邮箱（空=全员）
     "error": None,
 }
 
@@ -79,6 +80,7 @@ def _reset_recompute_state():
         "skipped": [],
         "failed": [],
         "cancelled": False,
+        "target_emails": [],
         "error": None,
     })
 
@@ -137,8 +139,57 @@ def _apply_excluded_emails_filter(query, db: Session, model_class=None,
     return query
 
 
-def _run_daily_recompute(start: date, end: date, force: bool):
-    """后台线程：按天补算人员能效数据"""
+def _normalize_emails(emails: Optional[list]) -> list:
+    """规范化邮箱列表：strip + 小写 + 去空 + 去重（保序）。
+
+    与现有 excluded_emails 的大小写不敏感约定保持一致。
+    """
+    if not emails:
+        return []
+    seen = set()
+    result = []
+    for e in emails:
+        if not e:
+            continue
+        norm = e.strip().lower()
+        if norm and norm not in seen:
+            seen.add(norm)
+            result.append(norm)
+    return result
+
+
+def _existing_daily_emails(db: Session, stat_date, emails: set) -> set:
+    """返回 emails 中在 stat_date 已有 daily 记录的邮箱（小写集合）"""
+    if not emails:
+        return set()
+    rows = (
+        db.query(EmployeeEfficiencyDaily.author_email)
+        .filter(
+            func.lower(EmployeeEfficiencyDaily.author_email).in_(list(emails)),
+            EmployeeEfficiencyDaily.stat_date == stat_date,
+        )
+        .all()
+    )
+    return {r[0].lower() for r in rows}
+
+
+def _existing_monthly_emails(db: Session, year_month: str, emails: set) -> set:
+    """返回 emails 中在 year_month 已有 monthly 记录的邮箱（小写集合）"""
+    if not emails:
+        return set()
+    rows = (
+        db.query(EmployeeEfficiencyMonthly.author_email)
+        .filter(
+            func.lower(EmployeeEfficiencyMonthly.author_email).in_(list(emails)),
+            EmployeeEfficiencyMonthly.year_month == year_month,
+        )
+        .all()
+    )
+    return {r[0].lower() for r in rows}
+
+
+def _run_daily_recompute(start: date, end: date, force: bool, only_emails: set | None = None):
+    """后台线程：按天补算人员能效数据（only_emails 非空时仅重算指定人员）"""
     from app.models import Settings
     from app.security import security_service
     from app.services.efficiency_aggregator import EfficiencyAggregator
@@ -190,14 +241,31 @@ def _run_daily_recompute(start: date, end: date, force: bool):
                     return
                 _recompute_task["current_date"] = current.isoformat()
 
-            # 非 force 模式下，若已有记录则跳过
-            if not force:
-                existing = (
-                    db.query(EmployeeEfficiencyDaily)
-                    .filter_by(stat_date=current)
-                    .count()
-                )
-                if existing > 0:
+            # 计算本日应处理的目标邮箱集合
+            if only_emails is None:
+                # 全员模式：非 force 时整天已有记录则跳过
+                if not force:
+                    existing = (
+                        db.query(EmployeeEfficiencyDaily)
+                        .filter_by(stat_date=current)
+                        .count()
+                    )
+                    if existing > 0:
+                        with _recompute_lock:
+                            _recompute_task["skipped"].append(current.isoformat())
+                            _recompute_task["skipped_days"] += 1
+                            _recompute_task["processed_days"] += 1
+                        current += timedelta(days=1)
+                        continue
+                targets = None
+            else:
+                # 指定人员模式：force 覆盖全部；非 force 只补缺失
+                if force:
+                    targets = set(only_emails)
+                else:
+                    done = _existing_daily_emails(db, current, only_emails)
+                    targets = set(only_emails) - done
+                if not targets:
                     with _recompute_lock:
                         _recompute_task["skipped"].append(current.isoformat())
                         _recompute_task["skipped_days"] += 1
@@ -206,7 +274,7 @@ def _run_daily_recompute(start: date, end: date, force: bool):
                     continue
 
             try:
-                aggregator.aggregate(current)
+                aggregator.aggregate(current, only_emails=targets)
                 with _recompute_lock:
                     _recompute_task["processed"].append(current.isoformat())
                     _recompute_task["processed_days"] += 1
@@ -239,8 +307,8 @@ def _run_daily_recompute(start: date, end: date, force: bool):
         db.close()
 
 
-def _run_monthly_recompute(year_month: str, force: bool):
-    """后台线程：补算月度能效数据"""
+def _run_monthly_recompute(year_month: str, force: bool, only_emails: set | None = None):
+    """后台线程：补算月度能效数据（only_emails 非空时仅重算指定人员）"""
     from app.models import Settings
     from app.security import security_service
     from app.services.efficiency_monthly_aggregator import EfficiencyMonthlyAggregator
@@ -264,7 +332,7 @@ def _run_monthly_recompute(year_month: str, force: bool):
             custom_prompt_template=settings.efficiency_monthly_prompt_template,
             excluded_emails=settings.excluded_emails_list,
         )
-        result = aggregator.aggregate(year_month)
+        result = aggregator.aggregate(year_month, only_emails=only_emails)
 
         with _recompute_lock:
             _recompute_task["is_running"] = False
@@ -865,6 +933,7 @@ class RecomputeRequest(BaseModel):
     start_date: str
     end_date: str
     force: bool = False
+    emails: Optional[list] = None
 
 
 @router.post("/recompute")
@@ -874,7 +943,8 @@ async def recompute(
     current_user: User = Depends(get_current_user_full),
 ):
     """管理员手动补算指定日期范围的人员能效数据（异步执行）"""
-    logger.info(f"收到补算请求: start_date={body.start_date}, end_date={body.end_date}, force={body.force}")
+    logger.info(f"收到补算请求: start_date={body.start_date}, end_date={body.end_date}, "
+                f"force={body.force}, emails={body.emails}")
 
     if not current_user.is_system_admin():
         raise HTTPException(403, "仅系统管理员可补算")
@@ -889,6 +959,9 @@ async def recompute(
     if s > e:
         logger.error(f"开始日期 {s} 晚于结束日期 {e}")
         raise HTTPException(400, "开始日期不能晚于结束日期")
+
+    normalized = _normalize_emails(body.emails)
+    only_emails = set(normalized) if normalized else None
 
     with _recompute_lock:
         if _recompute_task["is_running"]:
@@ -908,12 +981,13 @@ async def recompute(
             "skipped": [],
             "failed": [],
             "cancelled": False,
+            "target_emails": normalized,
             "error": None,
         })
 
     t = threading.Thread(
         target=_run_daily_recompute,
-        args=(s, e, body.force),
+        args=(s, e, body.force, only_emails),
         daemon=True,
     )
     t.start()
@@ -921,7 +995,8 @@ async def recompute(
     return ApiResponse(
         success=True,
         message="补算任务已启动，请在页面查看进度",
-        data={"task_type": "daily", "total_days": (e - s).days + 1},
+        data={"task_type": "daily", "total_days": (e - s).days + 1,
+              "target_emails": normalized},
     )
 
 
@@ -1134,6 +1209,7 @@ async def monthly_detail(
 class MonthlyRecomputeRequest(BaseModel):
     year_month: str
     force: bool = False
+    emails: Optional[list] = None
 
 
 @router.post("/monthly/recompute")
@@ -1143,7 +1219,8 @@ async def monthly_recompute(
     current_user: User = Depends(get_current_user_full),
 ):
     """管理员手动补算指定月份的月度能效数据（异步执行）"""
-    logger.info(f"收到月度补算请求: year_month={body.year_month}, force={body.force}")
+    logger.info(f"收到月度补算请求: year_month={body.year_month}, "
+                f"force={body.force}, emails={body.emails}")
 
     if not current_user.is_system_admin():
         raise HTTPException(403, "仅系统管理员可补算月度数据")
@@ -1152,19 +1229,37 @@ async def monthly_recompute(
         logger.error(f"year_month 格式错误: {body.year_month}")
         raise HTTPException(400, "year_month 格式错误，应为 YYYY-MM")
 
-    # 非 force 模式下，检查是否已有记录
-    if not body.force:
-        existing = (
-            db.query(EmployeeEfficiencyMonthly)
-            .filter_by(year_month=body.year_month)
-            .count()
-        )
-        if existing > 0:
-            return ApiResponse(
-                success=True,
-                message=f"已存在 {existing} 条月度记录，如需重算请勾选 force",
-                data={"skipped": True, "existing": existing},
+    normalized = _normalize_emails(body.emails)
+
+    if normalized:
+        # 指定人员模式
+        if body.force:
+            only_emails = set(normalized)
+        else:
+            done = _existing_monthly_emails(db, body.year_month, set(normalized))
+            remaining = set(normalized) - done
+            if not remaining:
+                return ApiResponse(
+                    success=True,
+                    message=f"指定人员的 {body.year_month} 月度记录均已存在，如需重算请勾选 force",
+                    data={"skipped": True},
+                )
+            only_emails = remaining
+    else:
+        # 全员模式
+        only_emails = None
+        if not body.force:
+            existing = (
+                db.query(EmployeeEfficiencyMonthly)
+                .filter_by(year_month=body.year_month)
+                .count()
             )
+            if existing > 0:
+                return ApiResponse(
+                    success=True,
+                    message=f"已存在 {existing} 条月度记录，如需重算请勾选 force",
+                    data={"skipped": True, "existing": existing},
+                )
 
     with _recompute_lock:
         if _recompute_task["is_running"]:
@@ -1184,12 +1279,13 @@ async def monthly_recompute(
             "skipped": [],
             "failed": [],
             "cancelled": False,
+            "target_emails": normalized,
             "error": None,
         })
 
     t = threading.Thread(
         target=_run_monthly_recompute,
-        args=(body.year_month, body.force),
+        args=(body.year_month, body.force, only_emails),
         daemon=True,
     )
     t.start()
@@ -1197,7 +1293,8 @@ async def monthly_recompute(
     return ApiResponse(
         success=True,
         message="月度补算任务已启动",
-        data={"task_type": "monthly", "year_month": body.year_month},
+        data={"task_type": "monthly", "year_month": body.year_month,
+              "target_emails": normalized},
     )
 
 

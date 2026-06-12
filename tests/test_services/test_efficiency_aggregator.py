@@ -299,3 +299,96 @@ def test_successful_llm_usage_is_recorded(db_session, gitlab_client_factory):
     assert usage_row.prompt_tokens == 20
     assert usage_row.completion_tokens == 10
     assert usage_row.total_tokens == 30
+
+
+def test_aggregate_only_emails_filters_others(
+    db_session, gitlab_client_factory, llm_mock
+):
+    """only_emails 指定单人时，仅写入该人，其他作者被跳过"""
+    project = Project(name="proj-a", project_id=1, gitlab_url="http://gl",
+                       is_active=True)
+    db_session.add(project)
+    db_session.commit()
+
+    commits = {
+        "main": [
+            _make_commit("sha-a", "alice@b.com", "Alice"),
+            _make_commit("sha-c", "carol@b.com", "Carol"),
+        ],
+    }
+    diffs = {
+        "sha-a": [{"diff": "+a", "new_path": "x.py", "old_path": "x.py",
+                   "new_file": False, "deleted_file": False, "renamed_file": False}],
+        "sha-c": [{"diff": "+c", "new_path": "y.py", "old_path": "y.py",
+                   "new_file": False, "deleted_file": False, "renamed_file": False}],
+    }
+    client = gitlab_client_factory(commits, diffs)
+
+    agg = EfficiencyAggregator(
+        db=db_session,
+        gitlab_client_factory=lambda p: client,
+        llm_config={"api_url": "x", "api_key": "x", "model": "m"},
+    )
+    agg.aggregate(date(2026, 5, 27), only_emails={"alice@b.com"})
+
+    rows = db_session.query(EmployeeEfficiencyDaily).all()
+    assert len(rows) == 1
+    assert rows[0].author_email == "alice@b.com"
+
+
+def test_aggregate_only_emails_case_insensitive(
+    db_session, gitlab_client_factory, llm_mock
+):
+    """only_emails 为小写，commit 邮箱含大写时仍能匹配"""
+    project = Project(name="proj-a", project_id=1, gitlab_url="http://gl",
+                       is_active=True)
+    db_session.add(project)
+    db_session.commit()
+
+    commits = {"main": [_make_commit("sha-a", "Alice@B.com", "Alice")]}
+    diffs = {"sha-a": [{"diff": "+a", "new_path": "x.py", "old_path": "x.py",
+                        "new_file": False, "deleted_file": False, "renamed_file": False}]}
+    client = gitlab_client_factory(commits, diffs)
+
+    agg = EfficiencyAggregator(
+        db=db_session,
+        gitlab_client_factory=lambda p: client,
+        llm_config={"api_url": "x", "api_key": "x", "model": "m"},
+    )
+    agg.aggregate(date(2026, 5, 27), only_emails={"alice@b.com"})
+
+    rows = db_session.query(EmployeeEfficiencyDaily).all()
+    assert len(rows) == 1
+    assert rows[0].author_email == "Alice@B.com"
+
+
+def test_aggregate_only_emails_none_writes_all(
+    db_session, gitlab_client_factory, llm_mock
+):
+    """only_emails=None（默认）时写入全部作者（向后兼容回归）"""
+    project = Project(name="proj-a", project_id=1, gitlab_url="http://gl",
+                       is_active=True)
+    db_session.add(project)
+    db_session.commit()
+
+    commits = {"main": [
+        _make_commit("sha-a", "alice@b.com", "Alice"),
+        _make_commit("sha-c", "carol@b.com", "Carol"),
+    ]}
+    diffs = {
+        "sha-a": [{"diff": "+a", "new_path": "x.py", "old_path": "x.py",
+                   "new_file": False, "deleted_file": False, "renamed_file": False}],
+        "sha-c": [{"diff": "+c", "new_path": "y.py", "old_path": "y.py",
+                   "new_file": False, "deleted_file": False, "renamed_file": False}],
+    }
+    client = gitlab_client_factory(commits, diffs)
+
+    agg = EfficiencyAggregator(
+        db=db_session,
+        gitlab_client_factory=lambda p: client,
+        llm_config={"api_url": "x", "api_key": "x", "model": "m"},
+    )
+    agg.aggregate(date(2026, 5, 27))
+
+    rows = db_session.query(EmployeeEfficiencyDaily).all()
+    assert len(rows) == 2

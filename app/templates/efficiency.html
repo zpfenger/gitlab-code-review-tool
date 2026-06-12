@@ -246,6 +246,14 @@
         </div>
         <div class="modal-body">
             <p id="recomputeModalDesc" style="margin-bottom: var(--space-3);"></p>
+            <div style="margin-bottom: var(--space-3);">
+                <label for="recomputeEmails" style="display:block; margin-bottom: var(--space-1); font-weight:500;">
+                    指定人员邮箱（可选）
+                </label>
+                <textarea id="recomputeEmails" rows="3"
+                    placeholder="多个邮箱用逗号或换行分隔；留空则补算全员"
+                    style="width:100%; box-sizing:border-box; padding:var(--space-2); border:1px solid var(--color-slate-300); border-radius:var(--radius-sm); font-family:inherit; font-size:0.875rem; resize:vertical;"></textarea>
+            </div>
             <label style="display:flex; align-items:center; gap:var(--space-2); cursor:pointer; user-select:none;">
                 <input type="checkbox" id="recomputeForce" />
                 <span>强制覆盖（已存在数据的日期也会重新计算）</span>

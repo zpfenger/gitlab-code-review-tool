@@ -53,8 +53,13 @@ class EfficiencyAggregator:
         self.excluded_emails = set(e.lower() for e in (excluded_emails or []))
 
     # ── 主入口 ────────────────────────────────────────
-    def aggregate(self, target_date: date) -> Dict[str, Any]:
-        """对指定日期做一次聚合（幂等，重复调用会 UPSERT）"""
+    def aggregate(self, target_date: date, only_emails: Optional[Set[str]] = None) -> Dict[str, Any]:
+        """对指定日期做一次聚合（幂等，重复调用会 UPSERT）
+
+        Args:
+            target_date: 目标日期
+            only_emails: 若提供（小写邮箱集合），仅写入这些作者；None 表示全员
+        """
         logger.info(f"开始聚合人员能效: {target_date}")
 
         per_author: Dict[str, Dict[str, Any]] = {}
@@ -73,6 +78,8 @@ class EfficiencyAggregator:
         success = 0
         failed = 0
         for email, data in per_author.items():
+            if only_emails is not None and email.lower() not in only_emails:
+                continue
             try:
                 self._upsert_author(email, data, target_date)
                 success += 1

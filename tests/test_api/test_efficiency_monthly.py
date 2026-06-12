@@ -282,3 +282,55 @@ def test_monthly_recompute_requires_admin(client, db_session, app):
     )
     assert resp.status_code == 403
     app.dependency_overrides.pop(get_current_user_full, None)
+
+
+def test_monthly_recompute_specified_all_existing_not_force_skips(
+    client, db_session, login_as_admin
+):
+    """指定人员 + not force + 全部已有月度记录 -> 同步返回跳过，不启动任务"""
+    import app.api.efficiency as eff
+
+    eff._recompute_task["is_running"] = False
+    _seed_monthly(db_session, "alice@b.com", "Alice", "2026-05", score=85)
+
+    resp = client.post(
+        "/api/efficiency/monthly/recompute",
+        json={"year_month": "2026-05", "force": False,
+              "emails": ["alice@b.com"]},
+    )
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data.get("skipped") is True
+
+
+def test_monthly_recompute_specified_partial_missing_starts_with_remaining(
+    client, db_session, login_as_admin, monkeypatch
+):
+    """指定人员 + not force + 部分缺失 -> 启动任务，only_emails 仅含缺失者"""
+    import app.api.efficiency as eff
+
+    eff._recompute_task["is_running"] = False
+    _seed_monthly(db_session, "alice@b.com", "Alice", "2026-05", score=85)
+
+    captured = {}
+
+    def _fake_thread(target=None, args=(), daemon=None):
+        captured["target"] = target
+        captured["args"] = args
+
+        class _T:
+            def start(self_inner):
+                captured["started"] = True
+
+        return _T()
+
+    monkeypatch.setattr(eff.threading, "Thread", _fake_thread)
+
+    resp = client.post(
+        "/api/efficiency/monthly/recompute",
+        json={"year_month": "2026-05", "force": False,
+              "emails": ["alice@b.com", "bob@b.com"]},
+    )
+    assert resp.status_code == 200
+    assert captured["args"][2] == {"bob@b.com"}
+    eff._recompute_task["is_running"] = False

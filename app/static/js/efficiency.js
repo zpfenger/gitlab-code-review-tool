@@ -723,6 +723,13 @@
     // ── 补算按钮 + 异步轮询 ──────────────────────
     var _pollTimer = null;
 
+    function parseEmailsInput(raw) {
+        if (!raw) return [];
+        return raw.split(/[\s,;，；]+/)
+            .map(function (s) { return s.trim(); })
+            .filter(function (s) { return s.length > 0; });
+    }
+
     function openRecomputeModal() {
         // 如果正在补算，点击按钮切换为显示进度
         if (_pollTimer) {
@@ -734,6 +741,7 @@
             : '补算 ' + STATE.startDate + ' ~ ' + STATE.endDate + ' 的人员能效数据';
         document.getElementById('recomputeModalDesc').textContent = desc;
         document.getElementById('recomputeForce').checked = false;
+        document.getElementById('recomputeEmails').value = '';
         document.getElementById('recomputeModal').classList.add('active');
     }
 
@@ -743,6 +751,7 @@
 
     function confirmRecompute() {
         var force = document.getElementById('recomputeForce').checked;
+        var emails = parseEmailsInput(document.getElementById('recomputeEmails').value);
         closeRecomputeModal();
 
         var btn = document.getElementById('btnRecompute');
@@ -755,6 +764,9 @@
         } else {
             url = '/api/efficiency/recompute';
             body = { start_date: STATE.startDate, end_date: STATE.endDate, force: force };
+        }
+        if (emails.length) {
+            body.emails = emails;
         }
 
         apiRequest(url, {
@@ -826,12 +838,16 @@
                 if (!d.is_running) {
                     stopRecomputePolling();
                     // 显示完成通知
+                    var scope = (d.target_emails && d.target_emails.length)
+                        ? '指定人员（' + d.target_emails.length + ' 人）'
+                        : '';
                     if (d.error) {
                         showNotification('补算异常：' + d.error, 'danger');
                     } else if (d.task_type === 'monthly') {
-                        showNotification('月度补算完成', 'success');
+                        showNotification(scope ? scope + '月度补算完成' : '月度补算完成', 'success');
                     } else {
-                        var msg = '补算完成：处理 ' + (d.processed || []).length + ' 天，'
+                        var msg = (scope ? scope + ' ' : '') + '补算完成：处理 '
+                            + (d.processed || []).length + ' 天，'
                             + '跳过 ' + (d.skipped || []).length + ' 天，'
                             + '失败 ' + (d.failed || []).length + ' 天';
                         showNotification(msg, 'success');

@@ -9,9 +9,10 @@
 from __future__ import annotations
 import json
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 from loguru import logger
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.employee_efficiency import EmployeeEfficiencyDaily
@@ -58,11 +59,12 @@ class EfficiencyMonthlyAggregator:
         self.custom_prompt_template = custom_prompt_template
         self.excluded_emails = set(e.lower() for e in (excluded_emails or []))
 
-    def aggregate(self, year_month: str) -> Dict[str, Any]:
+    def aggregate(self, year_month: str, only_emails: Optional[Set[str]] = None) -> Dict[str, Any]:
         """对指定月份做一次聚合（幂等，重复调用会 UPSERT）
 
         Args:
             year_month: 格式 "YYYY-MM"
+            only_emails: 若提供（小写邮箱集合），仅聚合这些作者；None 表示全员
 
         Returns:
             {"year_month", "authors_total", "authors_success", "authors_failed"}
@@ -82,6 +84,12 @@ class EfficiencyMonthlyAggregator:
         if self.excluded_emails:
             query = query.filter(
                 EmployeeEfficiencyDaily.author_email.notin_(list(self.excluded_emails))
+            )
+
+        # 指定人员过滤（大小写不敏感）
+        if only_emails:
+            query = query.filter(
+                func.lower(EmployeeEfficiencyDaily.author_email).in_(list(only_emails))
             )
 
         daily_rows = query.all()

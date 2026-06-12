@@ -5,6 +5,7 @@ import shutil
 import tempfile
 from datetime import date, datetime, timedelta
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from fastapi import FastAPI
@@ -497,3 +498,151 @@ def test_list_range_single_day_no_aggregation(client, db_session, login_as_admin
     items = resp.json()["data"]["items"]
     assert len(items) == 1
     assert items[0]["commits_count"] == 3
+
+
+def test_normalize_emails_strip_lower_dedup():
+    """规范化：去空白、转小写、去重、去空，保序"""
+    from app.api.efficiency import _normalize_emails
+
+    assert _normalize_emails([" Alice@B.com ", "carol@b.com", "ALICE@b.com", ""]) \
+        == ["alice@b.com", "carol@b.com"]
+
+
+def test_normalize_emails_none_and_empty():
+    """None 或空列表返回空列表"""
+    from app.api.efficiency import _normalize_emails
+
+    assert _normalize_emails(None) == []
+    assert _normalize_emails([]) == []
+    assert _normalize_emails(["  ", ""]) == []
+
+
+def test_existing_daily_emails_case_insensitive(db_session):
+    """返回指定邮箱中当天已有 daily 记录的集合（小写）"""
+    from app.api.efficiency import _existing_daily_emails
+
+    d = date(2026, 5, 27)
+    _seed(db_session, "Alice@B.com", "Alice", d)
+    _seed(db_session, "carol@b.com", "Carol", d)
+
+    result = _existing_daily_emails(
+        db_session, d, {"alice@b.com", "dave@b.com"}
+    )
+    assert result == {"alice@b.com"}
+
+
+def test_existing_daily_emails_empty_input(db_session):
+    """空输入返回空集合，不查询"""
+    from app.api.efficiency import _existing_daily_emails
+
+    assert _existing_daily_emails(db_session, date(2026, 5, 27), set()) == set()
+
+
+def test_existing_monthly_emails_case_insensitive(db_session):
+    """返回指定邮箱中该月已有 monthly 记录的集合（小写）"""
+    from app.api.efficiency import _existing_monthly_emails
+    from app.models.employee_efficiency_monthly import EmployeeEfficiencyMonthly
+
+    db_session.add(EmployeeEfficiencyMonthly(
+        author_email="Alice@B.com", author_name="Alice", year_month="2026-05",
+        commits_count=3, additions=100, deletions=20, files_changed=5,
+        new_files=0, deleted_files=0, active_days=2,
+        projects_involved=json.dumps(["proj-a"]),
+        review_score=85, review_grade="良好", review_summary="ok",
+        work_summary=json.dumps(["A"]), summary_top_n=5, llm_status="success",
+    ))
+    db_session.commit()
+
+    result = _existing_monthly_emails(
+        db_session, "2026-05", {"alice@b.com", "dave@b.com"}
+    )
+    assert result == {"alice@b.com"}
+
+
+def test_recompute_accepts_emails_and_sets_target(
+    client, db_session, login_as_admin, monkeypatch
+):
+    """按天补算接受 emails，规范化后写入任务状态 target_emails，并透传给线程"""
+    import app.api.efficiency as eff
+
+    eff._recompute_task["is_running"] = False
+    captured = {}
+
+    def _fake_thread(target=None, args=(), daemon=None):
+        captured["target"] = target
+        captured["args"] = args
+
+        class _T:
+            def start(self_inner):
+                captured["started"] = True
+
+        return _T()
+
+    monkeypatch.setattr(eff.threading, "Thread", _fake_thread)
+
+    today = date.today().isoformat()
+    resp = client.post(
+        "/api/efficiency/recompute",
+        json={"start_date": today, "end_date": today,
+              "force": True, "emails": [" Alice@B.com ", "alice@b.com"]},
+    )
+    assert resp.status_code == 200
+    assert eff._recompute_task["target_emails"] == ["alice@b.com"]
+    assert captured["args"][3] == {"alice@b.com"}
+    eff._recompute_task["is_running"] = False
+
+
+def test_run_daily_recompute_skips_existing_when_not_force(
+    db_session, monkeypatch
+):
+    """指定人员 + not force 时只把缺失人员传给聚合器"""
+    import app.api.efficiency as eff
+    from app.models import Settings
+
+    target_day = date(2026, 5, 27)
+    _seed(db_session, "alice@b.com", "Alice", target_day)
+    db_session.add(Settings(
+        global_gitlab_url="http://gl",
+        global_gitlab_token=None,
+        llm_api_url="x",
+        llm_api_key=None,
+        llm_model="m",
+        llm_timeout=240,
+        llm_max_retries=3,
+        llm_retry_delay=10,
+    ))
+    db_session.commit()
+
+    calls = []
+
+    class _FakeAggregator:
+        def __init__(self, **kwargs):
+            pass
+
+        def aggregate(self, target_date, only_emails=None):
+            calls.append((target_date, only_emails))
+            return {"authors_total": len(only_emails or [])}
+
+    monkeypatch.setattr(eff, "SessionLocal", lambda: db_session)
+    eff._recompute_task.update({
+        "is_running": True,
+        "processed_days": 0,
+        "skipped_days": 0,
+        "failed_days": 0,
+        "current_date": None,
+        "processed": [],
+        "skipped": [],
+        "failed": [],
+        "cancelled": False,
+        "error": None,
+    })
+
+    with patch("app.services.efficiency_aggregator.EfficiencyAggregator", _FakeAggregator):
+        eff._run_daily_recompute(
+            target_day, target_day, False,
+            only_emails={"alice@b.com", "bob@b.com"},
+        )
+
+    assert calls == [(target_day, {"bob@b.com"})]
+    assert eff._recompute_task["processed"] == [target_day.isoformat()]
+    assert eff._recompute_task["skipped"] == []
