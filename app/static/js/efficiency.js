@@ -25,18 +25,11 @@
 
     var chartCodeTop, chartGradePie, chartTrend, chartMonthlyTrend;
 
-    // ── 工具 ──────────────────────────────────────
-    function fmtDate(d) {
-        var y = d.getFullYear();
-        var m = String(d.getMonth() + 1).padStart(2, '0');
-        var day = String(d.getDate()).padStart(2, '0');
-        return y + '-' + m + '-' + day;
-    }
-
+    // ── 工具（fmtDate/escapeHtml/renderMarkdown 已提取到 app.js）──
     function yesterday() {
         var d = new Date();
         d.setDate(d.getDate() - 1);
-        return fmtDate(d);
+        return window.fmtDate(d);
     }
 
     function weekStart() {
@@ -44,7 +37,7 @@
         var day = d.getDay();
         var diff = day === 0 ? 6 : day - 1;
         d.setDate(d.getDate() - diff);
-        return fmtDate(d);
+        return window.fmtDate(d);
     }
 
     function currentMonth() {
@@ -64,21 +57,7 @@
         return String(usage.total_tokens).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
     }
 
-    function escapeHtml(s) {
-        if (s == null) return '';
-        return String(s).replace(/[&<>"']/g, function (c) {
-            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
-        });
-    }
-
-    function renderMarkdown(md) {
-        if (typeof marked === 'undefined') return escapeHtml(md);
-        try {
-            return marked.parse(md, { breaks: true, gfm: true });
-        } catch (e) {
-            return escapeHtml(md);
-        }
-    }
+    // escapeHtml / renderMarkdown 已提取到 app.js，通过 window 全局访问
 
     // ── Tab 切换 ──────────────────────────────────
     window.switchEfficiencyTab = function(el, mode) {

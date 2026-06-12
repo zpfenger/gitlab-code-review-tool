@@ -284,6 +284,158 @@ window.validateForm = validateForm;
 window.openModal = openModal;
 window.closeModal = closeModal;
 
+// ── 通用工具函数（多页面共享）──────────────────────
+
+// 日期格式化为 YYYY-MM-DD
+function fmtDate(d) {
+    var y = d.getFullYear();
+    var m = String(d.getMonth() + 1).padStart(2, '0');
+    var day = String(d.getDate()).padStart(2, '0');
+    return y + '-' + m + '-' + day;
+}
+
+// HTML 转义
+function escapeHtml(s) {
+    if (s == null) return '';
+    return String(s).replace(/[&<>"']/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+}
+
+// Markdown 渲染（需 marked.js，fallback 到纯文本转义）
+function renderMarkdown(md) {
+    if (typeof marked !== 'undefined') {
+        try { return marked.parse(md, { breaks: true, gfm: true }); } catch (e) { /* fallback */ }
+    }
+    return escapeHtml(md).replace(/\n/g, '<br>');
+}
+
+// 快速查询按钮初始化
+// options: { defaultRange: 'today', startDateId: 'filterStartDate', endDateId: 'filterEndDate', onChange: function }
+function initQuickFilter(options) {
+    var opts = Object.assign({ defaultRange: 'today', startDateId: 'filterStartDate', endDateId: 'filterEndDate', onChange: null }, options);
+    var startInput = document.getElementById(opts.startDateId);
+    var endInput = document.getElementById(opts.endDateId);
+
+    // 计算日期范围
+    function calcRange(range) {
+        var today = new Date();
+        var start, end;
+        if (range === 'today') {
+            start = end = fmtDate(today);
+        } else if (range === 'yesterday') {
+            var d = new Date(); d.setDate(d.getDate() - 1);
+            start = end = fmtDate(d);
+        } else if (range === 'thisWeek') {
+            var d = new Date(); var day = d.getDay();
+            d.setDate(d.getDate() - (day === 0 ? 6 : day - 1));
+            start = fmtDate(d); end = fmtDate(today);
+        } else if (range === 'thisMonth') {
+            var y = today.getFullYear();
+            var m = String(today.getMonth() + 1).padStart(2, '0');
+            start = y + '-' + m + '-01'; end = fmtDate(today);
+        }
+        return { start: start, end: end };
+    }
+
+    // 按钮点击
+    document.querySelectorAll('.quick-filter-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            var range = calcRange(btn.dataset.range);
+            if (startInput) startInput.value = range.start;
+            if (endInput) endInput.value = range.end;
+            document.querySelectorAll('.quick-filter-btn').forEach(function (b) {
+                b.classList.toggle('active', b === btn);
+            });
+            if (opts.onChange) opts.onChange(range);
+        });
+    });
+
+    // 日期手动变更时清除按钮激活
+    function clearActive() {
+        document.querySelectorAll('.quick-filter-btn').forEach(function (btn) {
+            btn.classList.remove('active');
+        });
+    }
+    if (startInput) startInput.addEventListener('change', clearActive);
+    if (endInput) endInput.addEventListener('change', clearActive);
+
+    // 设置默认
+    var defaultBtn = document.querySelector('.quick-filter-btn[data-range="' + opts.defaultRange + '"]');
+    if (defaultBtn) {
+        defaultBtn.classList.add('active');
+        var range = calcRange(opts.defaultRange);
+        if (startInput && !startInput.value) startInput.value = range.start;
+        if (endInput && !endInput.value) endInput.value = range.end;
+    }
+}
+
+// 通用分页渲染
+// containerId: 分页容器DOM ID, currentPage: 当前页, totalPages: 总页数, onPageChange: 回调
+function renderPagination(containerId, currentPage, totalPages, onPageChange) {
+    var links = document.getElementById(containerId);
+    if (!links) return;
+    if (totalPages <= 1) { links.innerHTML = ''; return; }
+
+    var html = '';
+    // 上一页
+    if (currentPage > 1) {
+        html += '<span class="page-link" data-page="' + (currentPage - 1) + '">上一页</span>';
+    } else {
+        html += '<span class="page-link disabled">上一页</span>';
+    }
+    // 页码
+    var start = Math.max(1, currentPage - 2);
+    var end = Math.min(totalPages, currentPage + 2);
+    if (start > 1) {
+        html += '<span class="page-link" data-page="1">1</span>';
+        if (start > 2) html += '<span class="page-link disabled">...</span>';
+    }
+    for (var i = start; i <= end; i++) {
+        html += '<span class="page-link ' + (i === currentPage ? 'active' : '') + '" data-page="' + i + '">' + i + '</span>';
+    }
+    if (end < totalPages) {
+        if (end < totalPages - 1) html += '<span class="page-link disabled">...</span>';
+        html += '<span class="page-link" data-page="' + totalPages + '">' + totalPages + '</span>';
+    }
+    // 下一页
+    if (currentPage < totalPages) {
+        html += '<span class="page-link" data-page="' + (currentPage + 1) + '">下一页</span>';
+    } else {
+        html += '<span class="page-link disabled">下一页</span>';
+    }
+    links.innerHTML = html;
+
+    // 绑定点击事件
+    links.querySelectorAll('.page-link[data-page]').forEach(function (el) {
+        el.addEventListener('click', function () {
+            var page = parseInt(el.dataset.page);
+            if (page >= 1 && page <= totalPages && onPageChange) onPageChange(page);
+        });
+    });
+}
+
+// 按钮加载状态辅助（异步操作期间禁用按钮并显示spinner）
+async function withButtonLoading(btn, asyncFn, loadingText) {
+    loadingText = loadingText || '处理中...';
+    var originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>' + loadingText;
+    try {
+        return await asyncFn();
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
+    }
+}
+
+window.fmtDate = fmtDate;
+window.escapeHtml = escapeHtml;
+window.renderMarkdown = renderMarkdown;
+window.initQuickFilter = initQuickFilter;
+window.renderPagination = renderPagination;
+window.withButtonLoading = withButtonLoading;
+
 // Initialize on DOM ready
 document.addEventListener('DOMContentLoaded', function() {
     // Enable Bootstrap tooltips

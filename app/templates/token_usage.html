@@ -5,25 +5,6 @@
 {% block extra_css %}
 <style>
     .token-chart { height: 300px; }
-    .token-total { font-family: var(--font-mono); font-weight: 600; }
-    .token-split { color: var(--color-slate-500); font-size: var(--text-xs); }
-
-    /* 快速查询按钮组 */
-    .quick-filter { display: inline-flex; gap: 0; }
-    .quick-filter-btn {
-        display: inline-block; padding: var(--space-1) var(--space-3); font-size: var(--text-sm);
-        color: var(--color-slate-600); background: var(--color-slate-100);
-        border: 1px solid var(--color-slate-300); cursor: pointer; user-select: none;
-        transition: all 0.15s ease;
-    }
-    .quick-filter-btn:first-child { border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
-    .quick-filter-btn:last-child { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
-    .quick-filter-btn:not(:first-child) { margin-left: -1px; }
-    .quick-filter-btn:hover { color: var(--color-primary); background: var(--color-primary-light); }
-    .quick-filter-btn.active {
-        color: var(--color-white); background: var(--color-primary);
-        border-color: var(--color-primary); z-index: 1; position: relative;
-    }
 </style>
 {% endblock %}
 
@@ -196,58 +177,7 @@ function bizTypeLabel(type) {
     return BIZ_TYPE_MAP[type] || type || '-';
 }
 
-// ── 快速查询按钮 ─────────────────────────────────
-function fmtDate(d) {
-    var y = d.getFullYear();
-    var m = String(d.getMonth() + 1).padStart(2, '0');
-    var day = String(d.getDate()).padStart(2, '0');
-    return y + '-' + m + '-' + day;
-}
-
-function applyTokenQuickFilter(range) {
-    var today = new Date();
-    var start, end;
-
-    if (range === 'today') {
-        start = fmtDate(today);
-        end = start;
-    } else if (range === 'yesterday') {
-        var d = new Date();
-        d.setDate(d.getDate() - 1);
-        start = fmtDate(d);
-        end = start;
-    } else if (range === 'thisWeek') {
-        var d = new Date();
-        var day = d.getDay();
-        var diff = day === 0 ? 6 : day - 1;
-        d.setDate(d.getDate() - diff);
-        start = fmtDate(d);
-        end = fmtDate(today);
-    } else if (range === 'thisMonth') {
-        var y = today.getFullYear();
-        var m = String(today.getMonth() + 1).padStart(2, '0');
-        start = y + '-' + m + '-01';
-        end = fmtDate(today);
-    }
-
-    document.getElementById('filterStartDate').value = start;
-    document.getElementById('filterEndDate').value = end;
-
-    // 更新按钮激活状态
-    document.querySelectorAll('.quick-filter-btn').forEach(function (btn) {
-        btn.classList.toggle('active', btn.dataset.range === range);
-    });
-
-    reloadTokenUsage();
-}
-
-function initTokenQuickFilterButtons() {
-    document.querySelectorAll('.quick-filter-btn').forEach(function (btn) {
-        btn.addEventListener('click', function () {
-            applyTokenQuickFilter(btn.dataset.range);
-        });
-    });
-}
+// fmtDate / initQuickFilter 已提取到 app.js
 
 function getTokenParams(includePage) {
     const params = new URLSearchParams();
@@ -406,28 +336,12 @@ function renderTokenCharts(data) {
 }
 
 document.addEventListener('DOMContentLoaded', function () {
-    // 初始化快速查询按钮，默认激活"今天"
-    initTokenQuickFilterButtons();
-    var defaultBtn = document.querySelector('.quick-filter-btn[data-range="today"]');
-    if (defaultBtn) defaultBtn.classList.add('active');
-
-    // 设置默认日期为今天
-    var today = fmtDate(new Date());
-    document.getElementById('filterStartDate').value = today;
-    document.getElementById('filterEndDate').value = today;
-
-    // 日期手动选择时，清除快速查询按钮激活状态
-    document.getElementById('filterStartDate').addEventListener('change', function () {
-        document.querySelectorAll('.quick-filter-btn').forEach(function (btn) {
-            btn.classList.remove('active');
-        });
+    initQuickFilter({
+        defaultRange: 'today',
+        startDateId: 'filterStartDate',
+        endDateId: 'filterEndDate',
+        onChange: function () { reloadTokenUsage(); }
     });
-    document.getElementById('filterEndDate').addEventListener('change', function () {
-        document.querySelectorAll('.quick-filter-btn').forEach(function (btn) {
-            btn.classList.remove('active');
-        });
-    });
-
     reloadTokenUsage();
 });
 </script>

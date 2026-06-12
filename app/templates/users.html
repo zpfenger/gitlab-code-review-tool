@@ -653,7 +653,7 @@
                             ${user.is_active ? '启用' : '禁用'}
                         </span>
                     </td>
-                    <td><small>${formatDate(user.created_at)}</small></td>
+                    <td><small>${formatDateShort(user.created_at)}</small></td>
                 </tr>
             `;
         }).join('');
@@ -999,15 +999,9 @@
         }
     }
 
-    // 工具函数
-    function escapeHtml(text) {
-        if (!text) return '';
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-    }
+    // escapeHtml 已提取到 app.js
 
-    function formatDate(dateStr) {
+    function formatDateShort(dateStr) {
         if (!dateStr) return '-';
         const date = new Date(dateStr);
         return date.toLocaleDateString('zh-CN');

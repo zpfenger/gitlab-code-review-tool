@@ -3,14 +3,6 @@
 
 {% block extra_css %}
 <style>
-    .grade-badge { display:inline-block; padding: var(--space-1) var(--space-3); border-radius: var(--radius-full);
-                   font-size: var(--text-xs); color: #fff; font-weight: 500; }
-    .grade-excellent { background: var(--color-success); }
-    .grade-good { background: var(--color-primary); }
-    .grade-average { background: var(--color-warning); color: var(--color-slate-800); }
-    .grade-poor { background: var(--color-error); }
-    .grade-none { background: var(--color-slate-400); }
-
     .efficiency-table th { cursor: pointer; user-select: none; }
     .efficiency-table th .sort-icon { opacity: 0.3; }
     .efficiency-table th.sorted .sort-icon { opacity: 1; }
@@ -32,31 +24,8 @@
 
     .filter-daily, .filter-monthly { display: flex; gap: var(--space-2); align-items: center; }
 
-    /* 快速查询按钮组 */
-    .quick-filter { display: inline-flex; gap: 0; margin-left: var(--space-2); }
-    .quick-filter-btn {
-        display: inline-block; padding: var(--space-1) var(--space-3); font-size: var(--text-sm);
-        color: var(--color-slate-600); background: var(--color-slate-100);
-        border: 1px solid var(--color-slate-300); cursor: pointer; user-select: none;
-        transition: all 0.15s ease;
-    }
-    .quick-filter-btn:first-child { border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
-    .quick-filter-btn:last-child { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
-    .quick-filter-btn:not(:first-child) { margin-left: -1px; }
-    .quick-filter-btn:hover { color: var(--color-primary); background: var(--color-primary-light); }
-    .quick-filter-btn.active {
-        color: var(--color-white); background: var(--color-primary);
-        border-color: var(--color-primary); z-index: 1; position: relative;
-    }
-    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 1060;
-                      display: none; justify-content: center; align-items: center; }
-    .modal-overlay.active { display: flex; }
-    .modal-content { background: var(--color-white); border-radius: var(--radius-lg);
-                      max-width: 800px; width: 90%; max-height: 80vh; overflow-y: auto;
-                      box-shadow: 0 8px 32px rgba(0,0,0,0.12); }
-    .modal-header { padding: var(--space-4) var(--space-5); border-bottom: 1px solid var(--color-slate-200);
-                     display: flex; justify-content: space-between; align-items: center; }
-    .modal-body { padding: var(--space-5); }
+    .quick-filter { margin-left: var(--space-2); }
+
     .daily-detail-table { width: 100%; }
     .daily-detail-table th, .daily-detail-table td { padding: var(--space-2) var(--space-3);
                                                        text-align: left; border-bottom: 1px solid var(--color-slate-100); }
@@ -66,32 +35,6 @@
     .daily-report-item { display: flex; align-items: center; justify-content: space-between;
                          width: 100%; text-align: left; }
     .daily-report-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-    /* Markdown 样式 */
-    .markdown-body { font-size: var(--text-sm); line-height: 1.6; }
-    .markdown-body p { margin-bottom: var(--space-2); }
-    .markdown-body ul, .markdown-body ol { padding-left: var(--space-5); margin-bottom: var(--space-2); }
-    .markdown-body li { margin-bottom: var(--space-1); }
-    .markdown-body li > ul, .markdown-body li > ol { margin-top: var(--space-1); margin-bottom: 0; }
-    .markdown-body code { background: var(--color-slate-100); padding: 0.15em 0.4em; border-radius: var(--radius-sm);
-                          font-family: 'JetBrains Mono', monospace; font-size: 0.9em; }
-    .markdown-body pre { background: var(--color-slate-100); padding: var(--space-3); border-radius: var(--radius-md);
-                         overflow-x: auto; margin-bottom: var(--space-3); }
-    .markdown-body pre code { background: none; padding: 0; }
-    .markdown-body strong { font-weight: 600; }
-    .markdown-body em { font-style: italic; }
-    .markdown-body blockquote { border-left: 3px solid var(--color-primary); padding-left: var(--space-3);
-                                color: var(--color-slate-600); margin-bottom: var(--space-2); }
-    .markdown-body h1, .markdown-body h2, .markdown-body h3,
-    .markdown-body h4, .markdown-body h5, .markdown-body h6 { font-weight: 600; margin-top: var(--space-3); margin-bottom: var(--space-2); }
-    .markdown-body h1 { font-size: 1.25em; }
-    .markdown-body h2 { font-size: 1.15em; }
-    .markdown-body h3 { font-size: 1.05em; }
-    .markdown-body table { width: 100%; border-collapse: collapse; margin-bottom: var(--space-3); }
-    .markdown-body th, .markdown-body td { border: 1px solid var(--color-slate-200); padding: var(--space-2) var(--space-3); text-align: left; }
-    .markdown-body th { background: var(--color-slate-50); font-weight: 600; }
-    .markdown-body a { color: var(--color-primary); text-decoration: none; }
-    .markdown-body a:hover { text-decoration: underline; }
 </style>
 {% endblock %}
 
@@ -235,39 +178,39 @@
 </div>
 
 <!-- 区间明细弹窗 -->
-<div class="modal-overlay" id="rangeDetailModal">
-    <div class="modal-content">
-        <div class="modal-header">
+<div class="modal-overlay-center" id="rangeDetailModal">
+    <div class="modal-center-content">
+        <div class="modal-center-header">
             <h5 style="margin:0; font-weight:600;" id="rangeModalTitle">区间明细</h5>
             <button class="btn-close-modal" id="rangeModalClose">&times;</button>
         </div>
-        <div class="modal-body" id="rangeModalBody">
+        <div class="modal-center-body" id="rangeModalBody">
             <div style="color: var(--color-slate-500);">加载中...</div>
         </div>
     </div>
 </div>
 
 <!-- 月度详情弹窗 -->
-<div class="modal-overlay" id="monthlyDetailModal">
-    <div class="modal-content">
-        <div class="modal-header">
+<div class="modal-overlay-center" id="monthlyDetailModal">
+    <div class="modal-center-content">
+        <div class="modal-center-header">
             <h5 style="margin:0; font-weight:600;" id="monthlyModalTitle">月度详情</h5>
             <button class="btn-close-modal" id="monthlyModalClose">&times;</button>
         </div>
-        <div class="modal-body" id="monthlyModalBody">
+        <div class="modal-center-body" id="monthlyModalBody">
             <div style="color: var(--color-slate-500);">加载中...</div>
         </div>
     </div>
 </div>
 
 <!-- 补算确认弹窗 -->
-<div class="modal-overlay" id="recomputeModal">
-    <div class="modal-content" style="max-width: 480px;">
-        <div class="modal-header">
+<div class="modal-overlay-center" id="recomputeModal">
+    <div class="modal-center-content" style="max-width: 480px;">
+        <div class="modal-center-header">
             <h5 style="margin:0; font-weight:600;">确认补算</h5>
             <button class="btn-close-modal" id="recomputeModalClose">&times;</button>
         </div>
-        <div class="modal-body">
+        <div class="modal-center-body">
             <p id="recomputeModalDesc" style="margin-bottom: var(--space-3);"></p>
             <div style="margin-bottom: var(--space-3);">
                 <label for="recomputeEmails" style="display:block; margin-bottom: var(--space-1); font-weight:500;">
@@ -290,13 +233,13 @@
 </div>
 
 <!-- 日报详情弹窗 -->
-<div class="modal-overlay" id="dailyReportModal">
-    <div class="modal-content" style="max-width: 900px;">
-        <div class="modal-header">
+<div class="modal-overlay-center" id="dailyReportModal">
+    <div class="modal-center-content" style="max-width: 900px;">
+        <div class="modal-center-header">
             <h5 style="margin:0; font-weight:600;" id="dailyReportModalTitle">日报详情</h5>
             <button class="btn-close-modal" id="dailyReportModalClose">&times;</button>
         </div>
-        <div class="modal-body" id="dailyReportModalBody">
+        <div class="modal-center-body" id="dailyReportModalBody">
             <div style="color: var(--color-slate-500);">加载中...</div>
         </div>
     </div>
