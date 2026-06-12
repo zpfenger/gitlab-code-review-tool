@@ -228,7 +228,7 @@ class SettingsUpdate(BaseModel):
 class GitlabTestRequest(BaseModel):
     """GitLab 连接测试请求"""
     gitlab_url: str = Field(..., min_length=1, max_length=500)
-    token: str = Field(..., min_length=1, max_length=500)
+    token: str = ""
 
 
 class SettingsResponse(SettingsBase):

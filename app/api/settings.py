@@ -5,6 +5,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
+import httpx
 from app.database import get_db
 from app.models import User
 from app.models.settings import Settings
@@ -204,10 +205,25 @@ def _refresh_scheduler(settings: Settings):
 @router.post("/test-gitlab")
 async def test_gitlab_connection(
     request: GitlabTestRequest,
+    db: Session = Depends(get_db),
     _: User = Depends(require_system_admin),
 ):
     """Test GitLab connection using provided credentials"""
-    client = GitLabClient(request.gitlab_url, request.token)
+    token = request.token
+
+    # 前端未传 token 时，从数据库取已保存的
+    if not token:
+        settings = db.query(Settings).first()
+        if settings and settings.global_gitlab_token:
+            try:
+                token = security_service.decrypt(settings.global_gitlab_token)
+            except Exception:
+                return ApiResponse.fail(code="DECRYPT_ERROR", message="GitLab Token 解密失败")
+
+    if not token:
+        return ApiResponse.fail(code="VALIDATION_ERROR", message="GitLab Token 不能为空")
+
+    client = GitLabClient(request.gitlab_url, token)
     success = client.test_connection()
 
     return ApiResponse(
@@ -216,28 +232,80 @@ async def test_gitlab_connection(
     )
 
 
+class LLMTestRequest(BaseModel):
+    api_url: str
+    api_key: str = ""
+    model: str = ""
+
+
 @router.post("/test-llm")
 async def test_llm_connection(
+    request: LLMTestRequest,
     db: Session = Depends(get_db),
     _: User = Depends(require_system_admin),
 ):
-    """Test LLM connection using current settings"""
-    settings = db.query(Settings).first()
-    if not settings:
-        raise HTTPException(status_code=404, detail="Settings not configured")
+    """Test LLM connection using request parameters"""
+    api_url = request.api_url
+    model = request.model
+    api_key = request.api_key
 
-    # Basic validation - LLM test requires actual API call which is async
-    if not settings.llm_api_url or not settings.llm_model:
+    if not api_url or not model:
         return ApiResponse.fail(code="VALIDATION_ERROR", message="LLM API 地址和模型名称不能为空")
 
-    # Decrypt API key if exists
-    if settings.llm_api_key:
-        try:
-            _ = security_service.decrypt(settings.llm_api_key)
-        except Exception:
-            return ApiResponse.fail(code="DECRYPT_ERROR", message="LLM API Key 解密失败")
+    # 前端未传 api_key 时，从数据库取已保存的
+    if not api_key:
+        settings = db.query(Settings).first()
+        if settings and settings.llm_api_key:
+            try:
+                api_key = security_service.decrypt(settings.llm_api_key)
+            except Exception:
+                return ApiResponse.fail(code="DECRYPT_ERROR", message="LLM API Key 解密失败")
 
-    return ApiResponse(success=True, message="LLM 配置验证通过")
+    # 实际调用 LLM API 验证连通性
+    try:
+        headers = {"Content-Type": "application/json"}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+
+        with httpx.Client(timeout=30) as client:
+            resp = client.post(
+                api_url,
+                headers=headers,
+                json={
+                    "model": model,
+                    "messages": [{"role": "user", "content": "Hi"}],
+                    "max_tokens": 5,
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+
+            # 兼容 OpenAI 格式：有 choices 字段即为成功
+            if not data.get("choices"):
+                return ApiResponse.fail(
+                    code="INVALID_RESPONSE",
+                    message=f"LLM 返回格式异常: {data}",
+                )
+
+            return ApiResponse(success=True, message="LLM 连接成功")
+
+    except httpx.ConnectError:
+        return ApiResponse.fail(code="CONNECT_ERROR", message="无法连接到 LLM API 地址，请检查地址是否正确")
+    except httpx.TimeoutException:
+        return ApiResponse.fail(code="TIMEOUT", message="LLM API 连接超时（30秒）")
+    except httpx.HTTPStatusError as e:
+        status = e.response.status_code
+        detail = ""
+        try:
+            detail = e.response.json().get("error", {}).get("message", "")
+        except Exception:
+            detail = e.response.text[:200]
+        return ApiResponse.fail(
+            code="HTTP_ERROR",
+            message=f"LLM API 返回错误 {status}: {detail}" if detail else f"LLM API 返回错误 {status}",
+        )
+    except Exception as e:
+        return ApiResponse.fail(code="UNKNOWN_ERROR", message=f"LLM 连接失败: {str(e)}")
 
 
 class SvnTestRequest(BaseModel):

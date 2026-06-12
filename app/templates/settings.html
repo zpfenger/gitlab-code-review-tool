@@ -570,15 +570,17 @@ async function testGitLab() {
 async function testLLM() {
     const apiKey = document.getElementById('llm_api_key').value;
     const apiUrl = document.getElementById('llm_api_url').value;
+    const model = document.getElementById('llm_model').value;
 
     try {
         const response = await fetch('/api/settings/test-llm', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ api_url: apiUrl, api_key: apiKey })
+            body: JSON.stringify({ api_url: apiUrl, api_key: apiKey, model: model })
         });
         const result = await response.json();
-        showTestResult(result.success ? 'success' : 'error', result.message);
+        const msg = result.success ? result.message : (result.error?.message || '未知错误');
+        showTestResult(result.success ? 'success' : 'error', msg);
     } catch (e) {
         showTestResult('error', '连接失败: ' + e.message);
     }
