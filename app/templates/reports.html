@@ -73,7 +73,7 @@
                 <div style="padding: var(--space-3) var(--space-4); background: var(--color-slate-50); border-bottom: 1px solid var(--color-slate-200); font-weight: 600; font-size: var(--text-sm);">
                     <i class="bi bi-folder2-open"></i> 报告目录
                 </div>
-                <div style="max-height: 500px; overflow-y: auto;">
+                <div style="max-height: 600px; overflow-y: auto;">
                     <div id="reportTree">
                         {% for project_name, dates in reports.items() %}
                         <div class="report-project">
@@ -106,9 +106,6 @@
                                                 <span class="badge badge-primary" style="margin-left: var(--space-1);">周报</span>
                                                 {% elif file_info.type == 'monthly' %}
                                                 <span class="badge badge-info" style="margin-left: var(--space-1);">月报</span>
-                                                {% endif %}
-                                                {% if file_info.token_usage and file_info.token_usage.total_tokens %}
-                                                <span class="badge badge-gray" style="margin-left: var(--space-1);">{{ file_info.token_usage.total_tokens }} token</span>
                                                 {% endif %}
                                             </a>
                                             {% if project_name in writable_project_names %}
@@ -148,7 +145,7 @@
                         </button>
                     </div>
                 </div>
-                <div style="padding: var(--space-4); min-height: 400px; max-height: 500px; overflow-y: auto;">
+                <div style="padding: var(--space-4); min-height: 400px; max-height: 600px; overflow-y: auto;">
                     <div id="reportContent">
                         <div style="text-align: center; padding: var(--space-12); color: var(--color-slate-500);">
                             <i class="bi bi-file-earmark-text" style="font-size: 3rem;"></i>

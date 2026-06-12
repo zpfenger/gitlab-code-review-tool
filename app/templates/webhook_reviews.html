@@ -11,6 +11,23 @@
 .delta-add { color: var(--color-success); font-weight: 600; }
 .delta-del { color: var(--color-error); font-weight: 600; }
 .chart-container { height: 300px; }
+
+/* 快速查询按钮组 */
+.quick-filter { display: inline-flex; gap: 0; }
+.quick-filter-btn {
+    display: inline-block; padding: var(--space-1) var(--space-3); font-size: var(--text-sm);
+    color: var(--color-slate-600); background: var(--color-slate-100);
+    border: 1px solid var(--color-slate-300); cursor: pointer; user-select: none;
+    transition: all 0.15s ease;
+}
+.quick-filter-btn:first-child { border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
+.quick-filter-btn:last-child { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+.quick-filter-btn:not(:first-child) { margin-left: -1px; }
+.quick-filter-btn:hover { color: var(--color-primary); background: var(--color-primary-light); }
+.quick-filter-btn.active {
+    color: var(--color-white); background: var(--color-primary);
+    border-color: var(--color-primary); z-index: 1; position: relative;
+}
 </style>
 {% endblock %}
 
@@ -20,39 +37,6 @@
     <div>
         <h1 class="page-title">Webhook 审查</h1>
         <p class="page-subtitle">实时 Webhook 触发的代码审查记录与统计</p>
-    </div>
-</div>
-
-<!-- GitLab Webhook Configuration -->
-<div class="panel" style="margin-bottom: var(--space-4); border-color: var(--color-primary);">
-    <div class="panel-heading" style="background: var(--color-primary); color: white;">
-        <div class="panel-title" style="color: white;">
-            <i class="bi bi-info-circle"></i> GitLab Webhook 配置
-        </div>
-    </div>
-    <div class="panel-body">
-        <div style="display: grid; grid-template-columns: 1fr auto; gap: var(--space-4); align-items: center;">
-            <div>
-                <p style="margin-bottom: var(--space-2);"><strong>Webhook 回调地址：</strong></p>
-                <div style="display: flex; gap: var(--space-2); max-width: 600px;">
-                    <input type="text" class="form-input" id="webhookUrlDisplay" readonly value="获取中..." style="font-family: var(--font-mono);">
-                    <button class="btn btn-secondary" onclick="copyWebhookUrl()" title="复制">
-                        <i class="bi bi-clipboard"></i>
-                    </button>
-                </div>
-                <small class="text-muted">
-                    前往 <strong>GitLab 项目 → Settings → Webhooks</strong>，填入上方地址，
-                    勾选 <code>Merge request events</code>（可选 <code>Push events</code>），
-                    取消勾选 <strong>Enable SSL verification</strong>（如使用 http），
-                    点击 <strong>Add webhook</strong> 后测试确认返回 200。
-                </small>
-            </div>
-            <div style="text-align: right;">
-                <span class="spinner-border spinner-border-sm text-primary" id="webhookUrlSpinner" role="status"></span>
-                <span class="badge badge-success" id="webhookUrlOk" style="display: none;"><i class="bi bi-check-circle"></i> 已获取</span>
-                <span class="badge badge-error" id="webhookUrlFail" style="display: none;"><i class="bi bi-x-circle"></i> 获取失败</span>
-            </div>
-        </div>
     </div>
 </div>
 
@@ -121,6 +105,14 @@
                 </button>
             </div>
         </div>
+        <div style="margin: var(--space-3) 0; display: flex; align-items: center;">
+            <div class="quick-filter">
+                <span class="quick-filter-btn" data-range="today">今天</span>
+                <span class="quick-filter-btn" data-range="yesterday">昨天</span>
+                <span class="quick-filter-btn" data-range="thisWeek">本周</span>
+                <span class="quick-filter-btn" data-range="thisMonth">本月</span>
+            </div>
+        </div>
 
         <!-- Toolbar -->
         <div class="toolbar">
@@ -134,14 +126,14 @@
             <table class="app-table-list">
                 <thead>
                     <tr>
-                        <th style="min-width:100px;">项目</th>
+                        <th style="min-width:80px;">项目</th>
                         <th style="min-width:80px;">提交者</th>
                         <th style="min-width:160px;" id="branchHeader">源分支 → 目标分支</th>
-                        <th style="min-width:140px;">提交信息</th>
+                        <th style="min-width:200px;">提交信息</th>
                         <th style="min-width:80px;">代码变更</th>
                         <th style="min-width:55px;">评分</th>
                         <th style="min-width:90px;">Token 消耗</th>
-                        <th style="min-width:90px;">时间</th>
+                        <th style="min-width:110px;">时间</th>
                         <th style="width: 100px;">操作</th>
                     </tr>
                 </thead>
@@ -197,6 +189,39 @@
     </div>
 </div>
 
+<!-- GitLab Webhook Configuration -->
+<div class="panel" style="margin: var(--space-4) 0; border-color: var(--color-primary);">
+    <div class="panel-heading" style="background: var(--color-primary); color: white;">
+        <div class="panel-title" style="color: white;">
+            <i class="bi bi-info-circle"></i> GitLab Webhook 配置
+        </div>
+    </div>
+    <div class="panel-body">
+        <div style="display: grid; grid-template-columns: 1fr auto; gap: var(--space-4); align-items: center;">
+            <div>
+                <p style="margin-bottom: var(--space-2);"><strong>Webhook 回调地址：</strong></p>
+                <div style="display: flex; gap: var(--space-2); max-width: 600px;">
+                    <input type="text" class="form-input" id="webhookUrlDisplay" readonly value="获取中..." style="font-family: var(--font-mono);">
+                    <button class="btn btn-secondary" onclick="copyWebhookUrl()" title="复制">
+                        <i class="bi bi-clipboard"></i>
+                    </button>
+                </div>
+                <small class="text-muted">
+                    前往 <strong>GitLab 项目 → Settings → Webhooks</strong>，填入上方地址，
+                    勾选 <code>Merge request events</code>（可选 <code>Push events</code>），
+                    取消勾选 <strong>Enable SSL verification</strong>（如使用 http），
+                    点击 <strong>Add webhook</strong> 后测试确认返回 200。
+                </small>
+            </div>
+            <div style="text-align: right;">
+                <span class="spinner-border spinner-border-sm text-primary" id="webhookUrlSpinner" role="status"></span>
+                <span class="badge badge-success" id="webhookUrlOk" style="display: none;"><i class="bi bi-check-circle"></i> 已获取</span>
+                <span class="badge badge-error" id="webhookUrlFail" style="display: none;"><i class="bi bi-x-circle"></i> 获取失败</span>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Review Detail Modal -->
 <div class="modal-overlay" id="reviewDetailModalBackdrop"></div>
 <div class="modal" id="reviewDetailModal" tabindex="-1" style="max-width: 720px;">
@@ -221,6 +246,61 @@ const isProjectAdmin = currentUserRoles.includes('project_admin');
 let currentType = 'mr';
 let currentPage = 1;
 let charts = {};
+
+// ── 快速查询按钮 ─────────────────────────────────
+function fmtDate(d) {
+    var y = d.getFullYear();
+    var m = String(d.getMonth() + 1).padStart(2, '0');
+    var day = String(d.getDate()).padStart(2, '0');
+    return y + '-' + m + '-' + day;
+}
+
+function applyQuickFilter(range) {
+    var today = new Date();
+    var start, end;
+
+    if (range === 'today') {
+        start = fmtDate(today);
+        end = start;
+    } else if (range === 'yesterday') {
+        var d = new Date();
+        d.setDate(d.getDate() - 1);
+        start = fmtDate(d);
+        end = start;
+    } else if (range === 'thisWeek') {
+        var d = new Date();
+        var day = d.getDay();
+        var diff = day === 0 ? 6 : day - 1;
+        d.setDate(d.getDate() - diff);
+        start = fmtDate(d);
+        end = fmtDate(today);
+    } else if (range === 'thisMonth') {
+        var y = today.getFullYear();
+        var m = String(today.getMonth() + 1).padStart(2, '0');
+        start = y + '-' + m + '-01';
+        end = fmtDate(today);
+    }
+
+    document.getElementById('filterStartDate').value = start;
+    document.getElementById('filterEndDate').value = end;
+
+    // 更新按钮激活状态
+    document.querySelectorAll('.quick-filter-btn').forEach(function (btn) {
+        btn.classList.toggle('active', btn.dataset.range === range);
+    });
+
+    currentPage = 1;
+    loadData();
+    loadStats();
+}
+
+function initQuickFilterButtons() {
+    document.querySelectorAll('.quick-filter-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            applyQuickFilter(btn.dataset.range);
+        });
+    });
+}
 
 function formatTokenUsage(usage, detailed = false) {
     if (!usage || !usage.total_tokens) return '-';
@@ -484,6 +564,28 @@ function copyWebhookUrl() {
 
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', () => {
+    // 初始化快速查询按钮，默认激活"今天"
+    initQuickFilterButtons();
+    var defaultBtn = document.querySelector('.quick-filter-btn[data-range="today"]');
+    if (defaultBtn) defaultBtn.classList.add('active');
+
+    // 设置默认日期为今天
+    var today = fmtDate(new Date());
+    document.getElementById('filterStartDate').value = today;
+    document.getElementById('filterEndDate').value = today;
+
+    // 日期手动选择时，清除快速查询按钮激活状态
+    document.getElementById('filterStartDate').addEventListener('change', function () {
+        document.querySelectorAll('.quick-filter-btn').forEach(function (btn) {
+            btn.classList.remove('active');
+        });
+    });
+    document.getElementById('filterEndDate').addEventListener('change', function () {
+        document.querySelectorAll('.quick-filter-btn').forEach(function (btn) {
+            btn.classList.remove('active');
+        });
+    });
+
     loadWebhookUrl();
     loadData();
     loadStats();

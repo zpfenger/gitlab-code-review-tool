@@ -1065,29 +1065,77 @@
         bindSort();
     }
 
+    // ── 快速查询按钮 ─────────────────────────────
+    function applyQuickFilter(range) {
+        var today = new Date();
+        var start, end;
+
+        if (range === 'yesterday') {
+            start = yesterday();
+            end = yesterday();
+        } else if (range === 'thisWeek') {
+            start = weekStart();
+            end = yesterday();
+        } else if (range === 'thisMonth') {
+            var y = today.getFullYear();
+            var m = String(today.getMonth() + 1).padStart(2, '0');
+            start = y + '-' + m + '-01';
+            end = yesterday();
+        }
+
+        if (start > end) start = end;
+
+        STATE.startDate = start;
+        STATE.endDate = end;
+        document.getElementById('startDate').value = start;
+        document.getElementById('endDate').value = end;
+
+        // 更新按钮激活状态
+        document.querySelectorAll('.quick-filter-btn').forEach(function (btn) {
+            btn.classList.toggle('active', btn.dataset.range === range);
+        });
+
+        loadData();
+    }
+
+    function initQuickFilterButtons() {
+        document.querySelectorAll('.quick-filter-btn').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                applyQuickFilter(btn.dataset.range);
+            });
+        });
+    }
+
     // ── 入口 ─────────────────────────────────────
     document.addEventListener('DOMContentLoaded', function () {
-        // 初始化日期
-        STATE.startDate = weekStart();
+        // 初始化日期 - 默认昨天
+        STATE.startDate = yesterday();
         STATE.endDate = yesterday();
         STATE.yearMonth = currentMonth();
-
-        if(STATE.startDate > STATE.endDate){
-            //当开始日期大于结束日期时，将开始日期设置为结束日期
-            STATE.startDate = STATE.endDate;
-        }
 
         document.getElementById('startDate').value = STATE.startDate;
         document.getElementById('endDate').value = STATE.endDate;
         document.getElementById('filterMonth').value = STATE.yearMonth;
 
+        // 初始化快速查询按钮，默认激活"昨天"
+        initQuickFilterButtons();
+        var defaultBtn = document.querySelector('.quick-filter-btn[data-range="yesterday"]');
+        if (defaultBtn) defaultBtn.classList.add('active');
+
         // 日期变化
         document.getElementById('startDate').addEventListener('change', function (e) {
             STATE.startDate = e.target.value || yesterday();
+            // 手动选择日期时，清除快速查询按钮激活状态
+            document.querySelectorAll('.quick-filter-btn').forEach(function (btn) {
+                btn.classList.remove('active');
+            });
             loadData();
         });
         document.getElementById('endDate').addEventListener('change', function (e) {
             STATE.endDate = e.target.value || yesterday();
+            document.querySelectorAll('.quick-filter-btn').forEach(function (btn) {
+                btn.classList.remove('active');
+            });
             loadData();
         });
         document.getElementById('filterMonth').addEventListener('change', function (e) {

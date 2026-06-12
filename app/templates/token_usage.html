@@ -7,6 +7,23 @@
     .token-chart { height: 300px; }
     .token-total { font-family: var(--font-mono); font-weight: 600; }
     .token-split { color: var(--color-slate-500); font-size: var(--text-xs); }
+
+    /* 快速查询按钮组 */
+    .quick-filter { display: inline-flex; gap: 0; }
+    .quick-filter-btn {
+        display: inline-block; padding: var(--space-1) var(--space-3); font-size: var(--text-sm);
+        color: var(--color-slate-600); background: var(--color-slate-100);
+        border: 1px solid var(--color-slate-300); cursor: pointer; user-select: none;
+        transition: all 0.15s ease;
+    }
+    .quick-filter-btn:first-child { border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
+    .quick-filter-btn:last-child { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+    .quick-filter-btn:not(:first-child) { margin-left: -1px; }
+    .quick-filter-btn:hover { color: var(--color-primary); background: var(--color-primary-light); }
+    .quick-filter-btn.active {
+        color: var(--color-white); background: var(--color-primary);
+        border-color: var(--color-primary); z-index: 1; position: relative;
+    }
 </style>
 {% endblock %}
 
@@ -15,34 +32,6 @@
     <div>
         <h1 class="page-title">Token 统计</h1>
         <p class="page-subtitle">LLM 调用消耗明细与趋势</p>
-    </div>
-</div>
-
-<div class="stats-grid" style="margin-bottom: var(--space-4);">
-    <div class="stat-card primary">
-        <div class="stat-icon"><i class="bi bi-cpu"></i></div>
-        <div class="stat-value" id="sumTotal">-</div>
-        <div class="stat-label">总消耗</div>
-    </div>
-    <div class="stat-card success">
-        <div class="stat-icon"><i class="bi bi-box-arrow-in-right"></i></div>
-        <div class="stat-value" id="sumPrompt">-</div>
-        <div class="stat-label">输入 Token</div>
-    </div>
-    <div class="stat-card warning">
-        <div class="stat-icon"><i class="bi bi-box-arrow-right"></i></div>
-        <div class="stat-value" id="sumCompletion">-</div>
-        <div class="stat-label">输出 Token</div>
-    </div>
-    <div class="stat-card info">
-        <div class="stat-icon"><i class="bi bi-calendar-day"></i></div>
-        <div class="stat-value" id="sumToday">-</div>
-        <div class="stat-label">今日消耗</div>
-    </div>
-    <div class="stat-card dark">
-        <div class="stat-icon"><i class="bi bi-calendar3"></i></div>
-        <div class="stat-value" id="sumMonth">-</div>
-        <div class="stat-label">本月消耗</div>
     </div>
 </div>
 
@@ -85,6 +74,42 @@
                 </button>
             </div>
         </div>
+        <div style="margin-top: var(--space-3); display: flex; align-items: center;">
+            <div class="quick-filter">
+                <span class="quick-filter-btn" data-range="today">今天</span>
+                <span class="quick-filter-btn" data-range="yesterday">昨天</span>
+                <span class="quick-filter-btn" data-range="thisWeek">本周</span>
+                <span class="quick-filter-btn" data-range="thisMonth">本月</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="stats-grid" style="margin-bottom: var(--space-4);">
+    <div class="stat-card primary">
+        <div class="stat-icon"><i class="bi bi-cpu"></i></div>
+        <div class="stat-value" id="sumTotal">-</div>
+        <div class="stat-label">总消耗</div>
+    </div>
+    <div class="stat-card success">
+        <div class="stat-icon"><i class="bi bi-box-arrow-in-right"></i></div>
+        <div class="stat-value" id="sumPrompt">-</div>
+        <div class="stat-label">输入 Token</div>
+    </div>
+    <div class="stat-card warning">
+        <div class="stat-icon"><i class="bi bi-box-arrow-right"></i></div>
+        <div class="stat-value" id="sumCompletion">-</div>
+        <div class="stat-label">输出 Token</div>
+    </div>
+    <div class="stat-card info">
+        <div class="stat-icon"><i class="bi bi-calendar-day"></i></div>
+        <div class="stat-value" id="sumToday">-</div>
+        <div class="stat-label">今日消耗</div>
+    </div>
+    <div class="stat-card dark">
+        <div class="stat-icon"><i class="bi bi-calendar3"></i></div>
+        <div class="stat-value" id="sumMonth">-</div>
+        <div class="stat-label">本月消耗</div>
     </div>
 </div>
 
@@ -159,6 +184,71 @@ function fmtNumber(value) {
     return Number(value || 0).toLocaleString('zh-CN');
 }
 
+// ── 业务类型中文映射 ─────────────────────────────
+var BIZ_TYPE_MAP = {
+    'report': '审查报告',
+    'webhook_mr': 'Webhook MR',
+    'webhook_push': 'Webhook Push',
+    'efficiency': '人员能效',
+};
+
+function bizTypeLabel(type) {
+    return BIZ_TYPE_MAP[type] || type || '-';
+}
+
+// ── 快速查询按钮 ─────────────────────────────────
+function fmtDate(d) {
+    var y = d.getFullYear();
+    var m = String(d.getMonth() + 1).padStart(2, '0');
+    var day = String(d.getDate()).padStart(2, '0');
+    return y + '-' + m + '-' + day;
+}
+
+function applyTokenQuickFilter(range) {
+    var today = new Date();
+    var start, end;
+
+    if (range === 'today') {
+        start = fmtDate(today);
+        end = start;
+    } else if (range === 'yesterday') {
+        var d = new Date();
+        d.setDate(d.getDate() - 1);
+        start = fmtDate(d);
+        end = start;
+    } else if (range === 'thisWeek') {
+        var d = new Date();
+        var day = d.getDay();
+        var diff = day === 0 ? 6 : day - 1;
+        d.setDate(d.getDate() - diff);
+        start = fmtDate(d);
+        end = fmtDate(today);
+    } else if (range === 'thisMonth') {
+        var y = today.getFullYear();
+        var m = String(today.getMonth() + 1).padStart(2, '0');
+        start = y + '-' + m + '-01';
+        end = fmtDate(today);
+    }
+
+    document.getElementById('filterStartDate').value = start;
+    document.getElementById('filterEndDate').value = end;
+
+    // 更新按钮激活状态
+    document.querySelectorAll('.quick-filter-btn').forEach(function (btn) {
+        btn.classList.toggle('active', btn.dataset.range === range);
+    });
+
+    reloadTokenUsage();
+}
+
+function initTokenQuickFilterButtons() {
+    document.querySelectorAll('.quick-filter-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            applyTokenQuickFilter(btn.dataset.range);
+        });
+    });
+}
+
 function getTokenParams(includePage) {
     const params = new URLSearchParams();
     const startDate = document.getElementById('filterStartDate').value;
@@ -218,7 +308,7 @@ function renderTokenTable(items) {
         const time = new Date(item.created_at_ts * 1000).toLocaleString('zh-CN', { hour12: false });
         return `<tr>
             <td><small>${time}</small></td>
-            <td>${item.biz_type || '-'}</td>
+            <td>${bizTypeLabel(item.biz_type)}</td>
             <td>${item.biz_id || '-'}</td>
             <td style="text-align:left;"><span class="text-truncate-sm" title="${item.project_name || ''}">${item.project_name || '-'}</span></td>
             <td>${item.author || '-'}</td>
@@ -262,7 +352,7 @@ function renderTokenCharts(data) {
     tokenCharts.biz = new Chart(document.getElementById('bizChart'), {
         type: 'doughnut',
         data: {
-            labels: data.by_biz_type.map(row => row.biz_type),
+            labels: data.by_biz_type.map(row => bizTypeLabel(row.biz_type)),
             datasets: [{ data: data.by_biz_type.map(row => row.total_tokens), backgroundColor: colors }]
         },
         options: { responsive: true, maintainAspectRatio: false }
@@ -277,19 +367,68 @@ function renderTokenCharts(data) {
         options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
     });
 
+    // 按业务类型构建趋势数据
+    var trendData = data.daily_trend_by_biz || [];
+    var allBizTypes = new Set();
+    trendData.forEach(function (row) {
+        Object.keys(row.biz_types || {}).forEach(function (biz) { allBizTypes.add(biz); });
+    });
+    // 固定业务类型颜色映射
+    var bizTypeColors = {
+        'report': '#2f80ed',      // 蓝色
+        'webhook_mr': '#27ae60',  // 绿色
+        'webhook_push': '#f2994a', // 橙色
+        'efficiency': '#9b51e0',  // 紫色
+    };
+    // 备用颜色池（用于未知业务类型）
+    var fallbackColors = ['#eb5757', '#00a6a6', '#e91e63', '#ff9800', '#795548'];
+    var fallbackIdx = 0;
+    var bizArray = Array.from(allBizTypes);
+    var trendDatasets = bizArray.map(function (biz, i) {
+        var color = bizTypeColors[biz] || fallbackColors[fallbackIdx++ % fallbackColors.length];
+        return {
+            label: bizTypeLabel(biz),
+            data: trendData.map(function (row) { return (row.biz_types && row.biz_types[biz]) || 0; }),
+            borderColor: color,
+            backgroundColor: 'transparent',
+            tension: 0.25,
+        };
+    });
+
     tokenCharts.trend = new Chart(document.getElementById('trendChart'), {
         type: 'line',
         data: {
-            labels: data.daily_trend.map(row => row.date),
-            datasets: [
-                { label: 'Prompt', data: data.daily_trend.map(row => row.prompt_tokens), borderColor: '#2f80ed', backgroundColor: 'transparent', tension: 0.25 },
-                { label: 'Completion', data: data.daily_trend.map(row => row.completion_tokens), borderColor: '#27ae60', backgroundColor: 'transparent', tension: 0.25 },
-            ]
+            labels: trendData.map(function (row) { return row.date; }),
+            datasets: trendDatasets,
         },
         options: { responsive: true, maintainAspectRatio: false }
     });
 }
 
-document.addEventListener('DOMContentLoaded', reloadTokenUsage);
+document.addEventListener('DOMContentLoaded', function () {
+    // 初始化快速查询按钮，默认激活"今天"
+    initTokenQuickFilterButtons();
+    var defaultBtn = document.querySelector('.quick-filter-btn[data-range="today"]');
+    if (defaultBtn) defaultBtn.classList.add('active');
+
+    // 设置默认日期为今天
+    var today = fmtDate(new Date());
+    document.getElementById('filterStartDate').value = today;
+    document.getElementById('filterEndDate').value = today;
+
+    // 日期手动选择时，清除快速查询按钮激活状态
+    document.getElementById('filterStartDate').addEventListener('change', function () {
+        document.querySelectorAll('.quick-filter-btn').forEach(function (btn) {
+            btn.classList.remove('active');
+        });
+    });
+    document.getElementById('filterEndDate').addEventListener('change', function () {
+        document.querySelectorAll('.quick-filter-btn').forEach(function (btn) {
+            btn.classList.remove('active');
+        });
+    });
+
+    reloadTokenUsage();
+});
 </script>
 {% endblock %}

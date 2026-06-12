@@ -160,6 +160,7 @@ async def get_token_usage_stats(
     trend_rows = (
         base.with_entities(
             TokenUsageLog.created_at_ts,
+            TokenUsageLog.biz_type,
             TokenUsageLog.prompt_tokens,
             TokenUsageLog.completion_tokens,
             TokenUsageLog.total_tokens,
@@ -167,6 +168,7 @@ async def get_token_usage_stats(
         .all()
     )
     daily_totals = {}
+    daily_by_biz = {}
     for row in trend_rows:
         day = datetime.fromtimestamp(row.created_at_ts).date().isoformat()
         bucket = daily_totals.setdefault(
@@ -176,6 +178,10 @@ async def get_token_usage_stats(
         bucket["prompt_tokens"] += int(row.prompt_tokens or 0)
         bucket["completion_tokens"] += int(row.completion_tokens or 0)
         bucket["total_tokens"] += int(row.total_tokens or 0)
+
+        biz_bucket = daily_by_biz.setdefault(day, {})
+        biz_bucket.setdefault(row.biz_type, 0)
+        biz_bucket[row.biz_type] += int(row.total_tokens or 0)
 
     by_model = (
         base.with_entities(
@@ -209,6 +215,10 @@ async def get_token_usage_stats(
             "daily_trend": [
                 {"date": day, **daily_totals[day]}
                 for day in sorted(daily_totals)
+            ],
+            "daily_trend_by_biz": [
+                {"date": day, "biz_types": daily_by_biz[day]}
+                for day in sorted(daily_by_biz)
             ],
             "by_model": [
                 {
