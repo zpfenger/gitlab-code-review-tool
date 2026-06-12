@@ -263,7 +263,11 @@ def get_efficiency_daily(
     # 构造响应
     items = []
     if overall_status == "success":
-        items = [_serialize_external(r) for r in rows]
+        # 白名单过滤后补回代码量排名字段（rank_map 基于全员代码变更量计算）
+        items = [
+            _serialize_external(r) | {"code_commit_rank": rank_map.get(r.author_email, "")}
+            for r in rows
+        ]
 
     result = {
         "date": target_date.isoformat(),

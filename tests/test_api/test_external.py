@@ -437,6 +437,39 @@ class TestGetEfficiencyDaily:
         assert data["items"][0]["author_email"] in ("a@example.com", "b@example.com")
 
     @patch('app.api.external.security_service')
+    def test_code_commit_rank(self, mock_security, client, db_session):
+        """daily 接口按代码变更量（新增+删除）返回全员排名 code_commit_rank
+
+        防回归：白名单序列化 _serialize_external 不得吞掉动态拼接的排名字段。
+        """
+        _setup_api_key(db_session, mock_security)
+        yesterday = date.today() - timedelta(days=1)
+
+        # Alice 代码量 300（200+100）→ 排名 1；Bob 代码量 80（50+30）→ 排名 2
+        db_session.add(_make_row(
+            author_email="alice@example.com", author_name="Alice",
+            stat_date=yesterday, llm_status="success",
+            additions=200, deletions=100,
+        ))
+        db_session.add(_make_row(
+            author_email="bob@example.com", author_name="Bob",
+            stat_date=yesterday, llm_status="success",
+            additions=50, deletions=30,
+        ))
+        db_session.commit()
+
+        response = client.get(
+            "/api/external/efficiency/daily",
+            headers=API_HEADERS,
+            params={"date": yesterday.isoformat()},
+        )
+        assert response.status_code == 200
+        items = response.json()["data"]["items"]
+        rank_by_email = {it["author_email"]: it["code_commit_rank"] for it in items}
+        assert rank_by_email["alice@example.com"] == "1/2"
+        assert rank_by_email["bob@example.com"] == "2/2"
+
+    @patch('app.api.external.security_service')
     def test_slash_date_format(self, mock_security, client, db_session):
         """支持 yyyy/MM/dd 日期格式"""
         _setup_api_key(db_session, mock_security)
@@ -616,7 +649,7 @@ class TestGetEfficiencyDaily:
 
     @patch('app.api.external.security_service')
     def test_response_contains_serialized_fields(self, mock_security, client, db_session):
-        """返回的 items 包含 _serialize 输出的所有字段"""
+        """daily 接口返回白名单字段 + 动态拼接的代码量排名 code_commit_rank"""
         _setup_api_key(db_session, mock_security)
         yesterday = date.today() - timedelta(days=1)
 
@@ -633,12 +666,14 @@ class TestGetEfficiencyDaily:
             params={"date": yesterday.isoformat()},
         )
         item = response.json()["data"]["items"][0]
+        # daily 接口在白名单字段之外额外拼接代码量排名 code_commit_rank
         expected_keys = {
             "id", "author_email", "author_name", "stat_date",
             "commits_count", "additions", "deletions", "files_changed",
             "new_files", "deleted_files", "projects_involved",
             "review_score", "review_grade", "review_summary",
             "work_summary", "llm_status", "llm_error",
+            "code_commit_rank",
         }
         assert expected_keys == set(item.keys())
 

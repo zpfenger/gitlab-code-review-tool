@@ -407,7 +407,7 @@ class GitLabClient:
         try:
             project = self.client.projects.get(project_id)
             commit = project.commits.get(commit_sha)
-            diffs_raw = commit.diff()
+            diffs_raw = commit.diff(get_all=True)
 
             # commit.diff() 可能返回 None（某些 GitLab 版本或权限配置下）
             if diffs_raw is None:
