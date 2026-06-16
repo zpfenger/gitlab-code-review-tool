@@ -10,13 +10,13 @@ from app.services.efficiency_prompt_template import (
 # ── 日度模板测试 ─────────────────────────────────────
 def test_standard_template_contains_author_name():
     """模板包含员工姓名"""
-    result = EFFICIENCY_STANDARD_TEMPLATE.format(author_name="张三", top_n=5)
+    result = get_efficiency_template(author_name="张三", top_n=5)
     assert "张三" in result
 
 
 def test_standard_template_contains_scoring_dimensions():
     """模板包含所有评分维度"""
-    result = EFFICIENCY_STANDARD_TEMPLATE.format(author_name="测试", top_n=5)
+    result = get_efficiency_template(author_name="测试", top_n=5)
     assert "注释质量" in result
     assert "业务逻辑校验" in result
     assert "性能优化" in result
@@ -27,7 +27,7 @@ def test_standard_template_contains_scoring_dimensions():
 
 def test_standard_template_contains_score_ranges():
     """模板包含分数段说明"""
-    result = EFFICIENCY_STANDARD_TEMPLATE.format(author_name="测试", top_n=5)
+    result = get_efficiency_template(author_name="测试", top_n=5)
     assert "5 分" in result
     assert "30 分" in result
     assert "40 分" in result
@@ -36,7 +36,7 @@ def test_standard_template_contains_score_ranges():
 
 def test_standard_template_contains_output_format():
     """模板包含输出格式要求"""
-    result = EFFICIENCY_STANDARD_TEMPLATE.format(author_name="测试", top_n=5)
+    result = get_efficiency_template(author_name="测试", top_n=5)
     assert "评分简述" in result
     assert "评分明细" in result
     assert "主要工作" in result
@@ -45,7 +45,7 @@ def test_standard_template_contains_output_format():
 
 def test_standard_template_contains_check_items():
     """模板包含检查项"""
-    result = EFFICIENCY_STANDARD_TEMPLATE.format(author_name="测试", top_n=5)
+    result = get_efficiency_template(author_name="测试", top_n=5)
     assert "检查项" in result
     assert "SQL 注入" in result
     assert "XSS" in result
@@ -95,10 +95,34 @@ def test_standard_template_uses_deduction_scoring():
     assert "从满分起步" in result
 
 
+def test_standard_template_contains_quantified_criteria():
+    """模板包含量化标准（消除模糊表述）"""
+    result = get_efficiency_template(author_name="测试", top_n=5)
+    # 注释质量量化
+    assert "冗余/不清晰注释 ≤ 2 处" in result
+    # 业务逻辑量化
+    assert "遗漏 ≤ 1 处" in result
+    assert "边界遗漏 ≤ 2 处" in result
+    # 性能优化量化
+    assert "可优化点 ≤ 2 处" in result
+    # 安全风险量化
+    assert "低风险隐患 ≤ 1 处" in result
+    # 编码规范量化
+    assert "不一致 ≤ 2 处" in result
+
+
+def test_standard_template_contains_scoring_guidance():
+    """模板包含评分量化指导"""
+    result = get_efficiency_template(author_name="测试", top_n=5)
+    assert "扣分必须写明" in result
+    assert "问题类型 + 具体位置" in result
+    assert "≤ N 处" in result
+
+
 # ── 月度模板测试 ─────────────────────────────────────
 def test_monthly_template_contains_fields():
     """月度模板包含必要字段"""
-    result = EFFICIENCY_MONTHLY_STANDARD_TEMPLATE.format(
+    result = get_monthly_template(
         author_name="张三", year_month="2026-05", top_n=10,
     )
     assert "张三" in result
@@ -109,7 +133,7 @@ def test_monthly_template_contains_fields():
 
 def test_monthly_template_contains_scoring_dimensions():
     """月度模板包含所有评分维度"""
-    result = EFFICIENCY_MONTHLY_STANDARD_TEMPLATE.format(
+    result = get_monthly_template(
         author_name="测试", year_month="2026-01", top_n=10,
     )
     assert "注释质量" in result
@@ -122,7 +146,7 @@ def test_monthly_template_contains_scoring_dimensions():
 
 def test_monthly_template_contains_score_table():
     """月度模板包含评分标准表"""
-    result = EFFICIENCY_MONTHLY_STANDARD_TEMPLATE.format(
+    result = get_monthly_template(
         author_name="测试", year_month="2026-01", top_n=10,
     )
     assert "| 分数 | 标准 |" in result
@@ -158,3 +182,29 @@ def test_get_monthly_template_custom_appends_to_standard():
     assert "月度评分明细" in result
     assert "月度总分" in result
     assert "补充评分要求" in result
+
+
+def test_monthly_template_contains_quantified_criteria():
+    """月度模板包含量化标准（消除模糊表述）"""
+    result = get_monthly_template(
+        author_name="测试", year_month="2026-01", top_n=10,
+    )
+    # 注释质量量化
+    assert "存在不足的提交 ≤ 2 次" in result
+    # 业务逻辑量化
+    assert "逻辑疏漏 ≤ 2 次" in result
+    assert "24h" in result  # 修复时效要求
+    # 安全风险量化
+    assert "低风险隐患 ≤ 1 次" in result
+    # 编码规范量化
+    assert "不一致提交 ≤ 2 次" in result
+
+
+def test_monthly_template_contains_scoring_guidance():
+    """月度模板包含评分量化指导"""
+    result = get_monthly_template(
+        author_name="测试", year_month="2026-01", top_n=10,
+    )
+    assert "扣分必须写明" in result
+    assert "问题类型 + 发生频次" in result
+    assert "≤ N 次" in result
