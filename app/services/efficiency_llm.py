@@ -9,7 +9,7 @@
 """
 from __future__ import annotations
 import re
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any, cast
 
 import httpx
 from loguru import logger
@@ -21,7 +21,7 @@ from app.services.efficiency_prompt_template import (
     get_efficiency_template,
     get_monthly_template,
 )
-from app.services.llm_usage import LLMResult, parse_usage
+from app.services.llm_usage import LLMResult, TokenUsage, parse_usage
 
 
 # ── 用户提示词模板 ────────────────────────────────────
@@ -71,7 +71,9 @@ _SCORE_HEADING_PATTERN = re.compile(r"##\s*(?:月度)?总[得]?分[:：]?\s*(\d+
 _SCORE_PATTERN = re.compile(r"总[得]?分[:：]?\s*(\d+)\s*分?")
 # 评分明细行：- 注释（5分）：4 分，xxx（兼容半角括号与 */- 列表符）
 _DIMENSION_LINE_PATTERN = re.compile(
-    r"^\s*[-*]\s*(.+?)[（(](\d+)\s*分[）)][:：]\s*(\d+(?:\.\d+)?)\s*分",
+    # 冒号与分数之间允许 markdown 加粗/斜体标记（**X分** / *X分*），
+    # 兼容 doubao 等模型的输出，否则维度解析失败、validate_score 重算防线失效
+    r"^\s*[-*]\s*(.+?)[（(](\d+)\s*分[）)][:：]\s*\**\s*(\d+(?:\.\d+)?)\s*\**\s*分",
     re.MULTILINE,
 )
 _WORK_HEADER_PATTERN = re.compile(r"##\s*[^\n]*?主要工作.*?\n(.+?)(?=\n##|\Z)", re.DOTALL)
@@ -375,6 +377,87 @@ def call_and_parse(
         "review_summary": parse_review_summary(raw),
         "success": True,
         "usage": usage,
+    }
+
+
+# ── 多次采样取中位数 ────────────────────────────────────
+def _median_int(scores: List[int]) -> int:
+    """取中位数并四舍五入为整数（偶数个取中间两数均值）"""
+    s = sorted(scores)
+    n = len(s)
+    if n % 2 == 1:
+        return s[n // 2]
+    return round((s[n // 2 - 1] + s[n // 2]) / 2)
+
+
+def _merge_token_usages(usages: List[Any]) -> Optional[TokenUsage]:
+    """累加多次调用的 token 用量，便于按总量记账"""
+    valid = [u for u in usages if u is not None]
+    if not valid:
+        return None
+    return TokenUsage(
+        model=valid[0].model,
+        prompt_tokens=sum(u.prompt_tokens for u in valid),
+        completion_tokens=sum(u.completion_tokens for u in valid),
+        total_tokens=sum(u.total_tokens for u in valid),
+    )
+
+
+def call_and_parse_samples(
+    *,
+    samples: int = 1,
+    **call_kwargs,
+) -> Dict[str, object]:
+    """多次采样评分取中位数，抑制单次评分的高方差噪声。
+
+    实测同一模型对同一提交反复评分仍波动 8~16 分（temperature=0），
+    多次采样取中位数是目前唯一可靠的降噪手段。
+
+    samples=1 时等价于 call_and_parse（向后兼容）。多次中失败的采样被跳过；
+    全部失败时返回失败 dict。
+
+    返回结构与 call_and_parse 一致，额外含：
+    - scores: 各次成功采样的分数列表（落库用于审计波动）
+    - score_range: 极差（max-min），反映本次评分波动幅度
+    score/grade 取中位数；raw/review_summary/work_summary 取最接近中位数的代表采样。
+    """
+    samples = max(1, int(samples))
+    if samples == 1:
+        result = call_and_parse(**call_kwargs)
+        result.setdefault("scores", [result["score"]] if result["success"] else [])
+        result.setdefault("score_range", 0)
+        return result
+
+    results: List[Dict[str, object]] = []
+    for _ in range(samples):
+        r = call_and_parse(**call_kwargs)
+        if r.get("success"):
+            results.append(r)
+
+    if not results:
+        return {
+            "raw": None, "score": 0, "grade": None,
+            "work_summary": [], "review_summary": "",
+            "success": False, "usage": None,
+            "scores": [], "score_range": 0,
+        }
+
+    results.sort(key=lambda r: cast(int, r["score"]))
+    scores = [cast(int, r["score"]) for r in results]
+    median_score = _median_int(scores)
+    # 代表采样：分数最接近中位数的那次，其 raw/summary 作为最终展示
+    representative = min(results, key=lambda r: abs(cast(int, r["score"]) - median_score))
+
+    return {
+        "raw": representative["raw"],
+        "score": median_score,
+        "grade": map_score_to_grade(median_score),
+        "work_summary": representative["work_summary"],
+        "review_summary": representative["review_summary"],
+        "success": True,
+        "usage": _merge_token_usages([r.get("usage") for r in results]),
+        "scores": scores,
+        "score_range": max(scores) - min(scores),
     }
 
 

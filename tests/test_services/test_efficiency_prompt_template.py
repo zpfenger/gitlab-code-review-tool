@@ -100,9 +100,10 @@ def test_standard_template_contains_quantified_criteria():
     result = get_efficiency_template(author_name="测试", top_n=5)
     # 注释质量量化
     assert "冗余/不清晰注释 ≤ 2 处" in result
-    # 业务逻辑量化
-    assert "遗漏 ≤ 1 处" in result
-    assert "边界遗漏 ≤ 2 处" in result
+    # 业务逻辑按严重程度定档（按性质不计数，消除"谁找得多谁分低"）
+    assert "中危" in result
+    assert "数据不一致" in result
+    assert "按性质不计数" in result
     # 性能优化量化
     assert "可优化点 ≤ 2 处" in result
     # 安全风险量化
@@ -191,9 +192,9 @@ def test_monthly_template_contains_quantified_criteria():
     )
     # 注释质量量化
     assert "存在不足的提交 ≤ 2 次" in result
-    # 业务逻辑量化
-    assert "逻辑疏漏 ≤ 2 次" in result
-    assert "24h" in result  # 修复时效要求
+    # 业务逻辑按严重程度定档（不按频次堆叠）
+    assert "中危" in result
+    assert "数据不一致" in result
     # 安全风险量化
     assert "低风险隐患 ≤ 1 次" in result
     # 编码规范量化

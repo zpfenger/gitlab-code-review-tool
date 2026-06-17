@@ -49,6 +49,7 @@ class SettingsBase(BaseModel):
     # 人员能效配置
     efficiency_enabled: bool = True
     efficiency_work_summary_top_n: int = Field(default=5, ge=1, le=20)
+    efficiency_score_samples: int = Field(default=1, ge=1, le=10)
     efficiency_prompt_template: Optional[str] = None
     efficiency_monthly_prompt_template: Optional[str] = None
     efficiency_excluded_emails: Optional[str] = None
@@ -173,6 +174,7 @@ class SettingsUpdate(BaseModel):
     # 人员能效配置
     efficiency_enabled: Optional[bool] = None
     efficiency_work_summary_top_n: Optional[int] = Field(None, ge=1, le=20)
+    efficiency_score_samples: Optional[int] = Field(None, ge=1, le=10)
     efficiency_prompt_template: Optional[str] = None
     efficiency_monthly_prompt_template: Optional[str] = None
     efficiency_excluded_emails: Optional[str] = None

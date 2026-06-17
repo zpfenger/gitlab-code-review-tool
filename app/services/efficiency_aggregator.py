@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from app.models.employee_efficiency import EmployeeEfficiencyDaily
 from app.models.project import Project
 from app.services.diff_utils import count_diff_lines
-from app.services.efficiency_llm import call_and_parse
+from app.services.efficiency_llm import call_and_parse, call_and_parse_samples
 from app.services.llm_usage import record_token_usage
 
 
@@ -34,6 +34,7 @@ class EfficiencyAggregator:
         top_n: int = 5,
         custom_prompt_template: Optional[str] = None,
         excluded_emails: Optional[list] = None,
+        score_samples: int = 1,
     ):
         """
         Args:
@@ -51,6 +52,7 @@ class EfficiencyAggregator:
         self.top_n = top_n
         self.custom_prompt_template = custom_prompt_template
         self.excluded_emails = set(e.lower() for e in (excluded_emails or []))
+        self.score_samples = max(1, int(score_samples))
 
     # ── 主入口 ────────────────────────────────────────
     def aggregate(self, target_date: date, only_emails: Optional[Set[str]] = None) -> Dict[str, Any]:
@@ -191,7 +193,8 @@ class EfficiencyAggregator:
         """对单个作者调 LLM 并 UPSERT"""
         commits_text = "\n".join(data["messages"])
 
-        llm_result = call_and_parse(
+        llm_result = call_and_parse_samples(
+            samples=self.score_samples,
             api_url=self.llm_config["api_url"],
             api_key=self.llm_config["api_key"],
             model=self.llm_config["model"],
@@ -235,6 +238,8 @@ class EfficiencyAggregator:
                 review_summary=llm_result["review_summary"],
                 work_summary=json.dumps(llm_result["work_summary"],
                                          ensure_ascii=False),
+                review_raw=llm_result["raw"],
+                review_sample_scores=json.dumps(llm_result.get("scores", [])),
                 llm_status="success",
                 llm_error=None,
             )
@@ -244,6 +249,8 @@ class EfficiencyAggregator:
                 review_grade=None,
                 review_summary=None,
                 work_summary=None,
+                review_raw=None,
+                review_sample_scores=None,
                 llm_status="failed",
                 llm_error="LLM call failed or returned empty",
             )

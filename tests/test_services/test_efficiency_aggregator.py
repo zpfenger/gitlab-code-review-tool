@@ -46,7 +46,7 @@ def gitlab_client_factory():
 @pytest.fixture
 def llm_mock():
     """mock call_and_parse"""
-    with patch("app.services.efficiency_aggregator.call_and_parse") as m:
+    with patch("app.services.efficiency_llm.call_and_parse") as m:
         m.return_value = {
             "raw": "mock raw output",
             "score": 85,
@@ -97,6 +97,7 @@ def test_aggregate_single_project_single_author(
     assert r.llm_status == "success"
     assert json.loads(r.work_summary) == ["实现 A", "修复 B"]
     assert json.loads(r.projects_involved) == ["proj-a"]
+    assert r.review_raw == "mock raw output"   # raw 完整落库，便于审计跨模型一致性
 
 
 def test_cross_branch_dedup(db_session, gitlab_client_factory, llm_mock):
@@ -211,7 +212,7 @@ def test_llm_failure_records_error(db_session, gitlab_client_factory):
                        "new_file": False, "deleted_file": False, "renamed_file": False}]}
     client = gitlab_client_factory(commits, diffs)
 
-    with patch("app.services.efficiency_aggregator.call_and_parse") as m:
+    with patch("app.services.efficiency_llm.call_and_parse") as m:
         m.return_value = {
             "raw": None, "score": 0, "grade": None,
             "work_summary": [], "review_summary": "",
@@ -273,7 +274,7 @@ def test_successful_llm_usage_is_recorded(db_session, gitlab_client_factory):
         total_tokens=30,
     )
 
-    with patch("app.services.efficiency_aggregator.call_and_parse") as m:
+    with patch("app.services.efficiency_llm.call_and_parse") as m:
         m.return_value = {
             "raw": "mock raw output",
             "score": 85,
@@ -392,3 +393,38 @@ def test_aggregate_only_emails_none_writes_all(
 
     rows = db_session.query(EmployeeEfficiencyDaily).all()
     assert len(rows) == 2
+
+
+def test_aggregate_score_samples_takes_median(db_session, gitlab_client_factory):
+    """score_samples=3：同一提交评 3 次取中位数，各次分数落库审计"""
+    project = Project(name="proj-a", project_id=1, gitlab_url="http://gl",
+                       is_active=True)
+    db_session.add(project)
+    db_session.commit()
+
+    commits = {"main": [_make_commit("sha1", "a@b.com", "Alice")]}
+    diffs = {"sha1": [{"diff": "+a", "new_path": "x", "old_path": "x",
+                       "new_file": False, "deleted_file": False}]}
+    client = gitlab_client_factory(commits, diffs)
+
+    scores = [78, 92, 85]   # 中位数 85
+
+    def fake_single(**kw):
+        s = scores.pop(0)
+        return {"raw": f"raw{s}", "score": s, "grade": None,
+                "work_summary": [], "review_summary": f"summary{s}",
+                "success": True, "usage": None}
+
+    with patch("app.services.efficiency_llm.call_and_parse", side_effect=fake_single):
+        agg = EfficiencyAggregator(
+            db=db_session,
+            gitlab_client_factory=lambda p: client,
+            llm_config={"api_url": "x", "api_key": "x", "model": "m"},
+            score_samples=3,
+        )
+        agg.aggregate(date(2026, 5, 27))
+
+    r = db_session.query(EmployeeEfficiencyDaily).one()
+    assert r.review_score == 85                       # 中位数
+    assert json.loads(r.review_sample_scores) == [78, 85, 92]
+    assert r.review_raw == "raw85"                    # 代表采样的 raw

@@ -234,6 +234,7 @@ def _run_daily_recompute(start: date, end: date, force: bool, only_emails: set |
             top_n=top_n,
             custom_prompt_template=settings.efficiency_prompt_template,
             excluded_emails=settings.excluded_emails_list,
+            score_samples=int(settings.efficiency_score_samples or 1),
         )
 
         current = start

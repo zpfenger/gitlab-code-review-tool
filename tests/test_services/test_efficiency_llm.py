@@ -5,7 +5,8 @@ from app.services.efficiency_llm import (
     parse_score, parse_work_summary, parse_review_summary,
     parse_dimension_scores, validate_score,
     map_score_to_grade, build_system_prompt, build_user_prompt,
-    call_and_parse, build_monthly_system_prompt, build_monthly_user_prompt,
+    call_and_parse, call_and_parse_samples,
+    build_monthly_system_prompt, build_monthly_user_prompt,
     call_and_parse_monthly,
 )
 from app.services.llm_usage import LLMResult, TokenUsage
@@ -76,6 +77,15 @@ def test_parse_dimension_scores_clamps_over_max():
 def test_parse_dimension_scores_empty():
     assert parse_dimension_scores("") == []
     assert parse_dimension_scores("没有明细") == []
+
+
+def test_parse_dimension_scores_handles_bold_markdown():
+    """兼容 doubao 的 markdown 加粗写法 **X分** / *X分*"""
+    text = ("- 注释（5分）：**5分**，清晰\n"
+            "- 性能优化点（40分）：**28分**，可优化\n"
+            "- 业务逻辑校验（30分）：*15 分*，存在漏洞")
+    dims = parse_dimension_scores(text)
+    assert dims == [("注释", 5, 5), ("性能优化点", 28, 40), ("业务逻辑校验", 15, 30)]
 
 
 def test_validate_score_recomputes_on_mismatch():
@@ -303,6 +313,73 @@ def test_call_and_parse_recomputes_score_from_details():
         )
     assert result["score"] == 85
     assert result["grade"] == "良好"
+
+
+# ── 多次采样取中位数 ──────────────────────────────
+def test_call_and_parse_samples_one_equals_single():
+    """samples=1 等价单次调用"""
+    fake = {"raw": "r", "score": 77, "grade": None, "work_summary": [],
+            "review_summary": "s", "success": True, "usage": None}
+    with patch("app.services.efficiency_llm.call_and_parse", return_value=fake):
+        r = call_and_parse_samples(
+            samples=1, api_url="x", api_key="x", model="m",
+            author_name="A", commits_text="x", diffs=[],
+        )
+    assert r["score"] == 77
+    assert r["scores"] == [77]
+
+
+def test_call_and_parse_samples_median_of_three():
+    """3 次采样取中位数，raw/summary 取代表采样"""
+    scores = [80, 90, 85]
+
+    def fake(**kw):
+        s = scores.pop(0)
+        return {"raw": f"raw{s}", "score": s, "grade": None,
+                "work_summary": [], "review_summary": f"summary{s}",
+                "success": True, "usage": None}
+
+    with patch("app.services.efficiency_llm.call_and_parse", side_effect=fake):
+        r = call_and_parse_samples(
+            samples=3, api_url="x", api_key="x", model="m",
+            author_name="A", commits_text="x", diffs=[],
+        )
+    assert r["success"] is True
+    assert r["score"] == 85             # 中位数
+    assert r["scores"] == [80, 85, 90]  # 排序后
+    assert r["score_range"] == 10
+    assert r["review_summary"] == "summary85"  # 代表采样
+
+
+def test_call_and_parse_samples_even_count_averages_middle():
+    """偶数次取中间两数均值并四舍五入"""
+    scores = [80, 84]
+
+    def fake(**kw):
+        s = scores.pop(0)
+        return {"raw": str(s), "score": s, "grade": None,
+                "work_summary": [], "review_summary": "s",
+                "success": True, "usage": None}
+
+    with patch("app.services.efficiency_llm.call_and_parse", side_effect=fake):
+        r = call_and_parse_samples(
+            samples=2, api_url="x", api_key="x", model="m",
+            author_name="A", commits_text="x", diffs=[],
+        )
+    assert r["score"] == 82  # (80+84)/2
+
+
+def test_call_and_parse_samples_all_fail():
+    """全部采样失败时返回失败 dict"""
+    fail = {"raw": None, "score": 0, "grade": None, "work_summary": [],
+            "review_summary": "", "success": False, "usage": None}
+    with patch("app.services.efficiency_llm.call_and_parse", return_value=fail):
+        r = call_and_parse_samples(
+            samples=3, api_url="x", api_key="x", model="m",
+            author_name="A", commits_text="x", diffs=[],
+        )
+    assert r["success"] is False
+    assert r["scores"] == []
 
 
 # ── 月度 LLM 测试 ──────────────────────────────────

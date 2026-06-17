@@ -229,13 +229,20 @@
             </div>
         </div>
         <div class="panel-body">
-            <div style="display: grid; grid-template-columns: 1fr; gap: var(--space-4); max-width: 300px;">
+            <div style="display: grid; grid-template-columns: 1fr; gap: var(--space-4);">
                 <div class="form-group">
                     <label for="efficiency_work_summary_top_n" class="form-label">工作总结条目上限</label>
                     <input type="number" class="form-input" id="efficiency_work_summary_top_n"
-                           name="efficiency_work_summary_top_n" min="1" max="20"
+                           name="efficiency_work_summary_top_n" min="1" max="20" style="width:70px"
                            value="{{ settings.efficiency_work_summary_top_n or 5 }}">
                     <small class="text-muted">LLM 输出的主要工作条目数量上限（1-20）</small>
+                </div>
+                <div class="form-group">
+                    <label for="efficiency_score_samples" class="form-label">评分采样次数</label>
+                    <input type="number" class="form-input" id="efficiency_score_samples"
+                           name="efficiency_score_samples" min="1" max="10"  style="width:70px"
+                           value="{{ settings.efficiency_score_samples or 1 }}">
+                    <small class="text-muted">对同一提交多次评分取中位数，抑制单次评分的高方差噪声（实测 <code>temperature=0</code> 仍波动 8~16 分）。1=单次（默认，成本最低）；3=推荐，成本 3× 但评分稳定。各次分数会落库便于审计</small>
                 </div>
             </div>
 
@@ -519,6 +526,7 @@ document.getElementById('settingsForm').addEventListener('submit', async functio
         daily_enabled: formData.get('daily_enabled') === 'on',
         efficiency_enabled: formData.get('efficiency_enabled') === 'on',
         efficiency_work_summary_top_n: parseInt(formData.get('efficiency_work_summary_top_n')) || 5,
+        efficiency_score_samples: parseInt(formData.get('efficiency_score_samples')) || 1,
         efficiency_prompt_template: formData.get('efficiency_prompt_template') || null,
         efficiency_monthly_prompt_template: formData.get('efficiency_monthly_prompt_template') || null,
         efficiency_excluded_emails: formData.get('efficiency_excluded_emails') || null,

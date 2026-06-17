@@ -1037,6 +1037,7 @@ def run_scheduled_task(task_type: str = 'daily'):
                     top_n=top_n,
                     custom_prompt_template=settings.efficiency_prompt_template,
                     excluded_emails=settings.excluded_emails_list,
+                    score_samples=int(settings.efficiency_score_samples or 1),
                 )
                 agg_result = aggregator.aggregate(target_efficiency_date)
                 logger.info(f"人员能效聚合: {agg_result}")

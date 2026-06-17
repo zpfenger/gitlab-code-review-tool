@@ -51,6 +51,8 @@ class Settings(BaseModel):
     # 人员能效配置
     efficiency_enabled = Column(Boolean, default=True, comment="是否启用人员能效聚合")
     efficiency_work_summary_top_n = Column(Integer, default=5, comment="LLM 工作总结条目上限")
+    efficiency_score_samples = Column(Integer, default=1,
+                                       comment="评分采样次数，>1 时多次评分取中位数降噪")
     efficiency_prompt_template = Column(Text, nullable=True, comment="能效评分提示词模板")
     efficiency_monthly_prompt_template = Column(Text, nullable=True, comment="月度能效提示词模板")
     efficiency_excluded_emails = Column(Text, nullable=True, comment="人员能效排除邮箱列表 (JSON 数组)")

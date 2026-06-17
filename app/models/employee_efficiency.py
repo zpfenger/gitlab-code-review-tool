@@ -35,6 +35,10 @@ class EmployeeEfficiencyDaily(BaseModel):
     review_summary = Column(Text, nullable=True, comment="评分简述（1-2 句）")
     work_summary = Column(Text, nullable=True,
                            comment="LLM 工作总结 JSON 数组")
+    review_raw = Column(Text, nullable=True,
+                        comment="LLM 完整原始输出，便于事后审计跨模型评分一致性")
+    review_sample_scores = Column(Text, nullable=True,
+                                   comment="多次采样各次分数 JSON 数组，反映评分波动幅度")
     summary_top_n = Column(Integer, nullable=True, default=5,
                             comment="生成时使用的 top_n")
 

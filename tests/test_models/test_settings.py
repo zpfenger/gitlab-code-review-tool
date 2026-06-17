@@ -25,8 +25,8 @@ class TestSettings:
 
         assert settings.id is not None
         assert settings.daily_schedule_times == '["09:00"]'
-        assert settings.llm_timeout == 120
-        assert settings.llm_max_retries == 3
+        assert settings.llm_timeout == 240
+        assert settings.llm_max_retries == 5
 
     def test_settings_defaults(self, db_session):
         """测试默认值"""
@@ -39,9 +39,9 @@ class TestSettings:
         db_session.add(settings)
         db_session.commit()
 
-        assert settings.llm_timeout == 120
-        assert settings.llm_max_retries == 3
-        assert settings.llm_retry_delay == 5
+        assert settings.llm_timeout == 240
+        assert settings.llm_max_retries == 5
+        assert settings.llm_retry_delay == 60
         assert settings.max_commits_per_run == 100
 
     def test_external_api_key_field_nullable(self, db_session):

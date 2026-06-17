@@ -83,6 +83,7 @@ def main():
         aggregator = EfficiencyAggregator(
             db=db, gitlab_client_factory=_factory,
             llm_config=llm_cfg, top_n=top_n,
+            score_samples=int(settings.efficiency_score_samples or 1),
         )
 
         current = start
