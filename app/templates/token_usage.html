@@ -279,11 +279,22 @@ function renderTokenCharts(data) {
     tokenCharts = {};
     const colors = ['#2f80ed', '#27ae60', '#f2994a', '#eb5757', '#9b51e0', '#00a6a6'];
 
+    // 固定业务类型颜色映射
+    var bizTypeColors = {
+        'report': '#2f80ed',      // 蓝色 - 审查报告
+        'webhook_mr': '#f2994a',  // 橙色 - MR
+        'webhook_push': '#ee5a2f', // 红色 - Push
+        'efficiency': '#27ae60',  // 绿色 - 人员能效
+    };
+
     tokenCharts.biz = new Chart(document.getElementById('bizChart'), {
         type: 'doughnut',
         data: {
             labels: data.by_biz_type.map(row => bizTypeLabel(row.biz_type)),
-            datasets: [{ data: data.by_biz_type.map(row => row.total_tokens), backgroundColor: colors }]
+            datasets: [{
+                data: data.by_biz_type.map(row => row.total_tokens),
+                backgroundColor: data.by_biz_type.map(row => bizTypeColors[row.biz_type] || colors[0])
+            }]
         },
         options: { responsive: true, maintainAspectRatio: false }
     });
@@ -303,13 +314,6 @@ function renderTokenCharts(data) {
     trendData.forEach(function (row) {
         Object.keys(row.biz_types || {}).forEach(function (biz) { allBizTypes.add(biz); });
     });
-    // 固定业务类型颜色映射
-    var bizTypeColors = {
-        'report': '#2f80ed',      // 蓝色
-        'webhook_mr': '#27ae60',  // 绿色
-        'webhook_push': '#f2994a', // 橙色
-        'efficiency': '#9b51e0',  // 紫色
-    };
     // 备用颜色池（用于未知业务类型）
     var fallbackColors = ['#eb5757', '#00a6a6', '#e91e63', '#ff9800', '#795548'];
     var fallbackIdx = 0;
