@@ -157,13 +157,14 @@ def _refresh_scheduler(settings: Settings):
     """根据最新设置刷新调度器中的任务"""
     try:
         from app.main import scheduler, run_scheduled_task, _run_gitlab_sync_scheduled
+        from app.main import run_daily_efficiency_aggregation, run_monthly_efficiency_aggregation
         if not scheduler or not settings.scheduler_enabled:
             return
 
         # 移除所有旧的调度任务
         if scheduler.scheduler:
             for job in scheduler.scheduler.get_jobs():
-                if job.id.startswith('daily_review') or job.id.startswith('weekly_review') or job.id.startswith('gitlab_sync'):
+                if job.id.startswith('daily_review') or job.id.startswith('weekly_review') or job.id.startswith('gitlab_sync') or job.id.startswith('efficiency_'):
                     scheduler.scheduler.remove_job(job.id)
 
         # 注册每日任务
@@ -195,8 +196,26 @@ def _refresh_scheduler(settings: Settings):
                 job_id='gitlab_sync'
             )
 
+        # 注册日常能效聚合任务
+        if settings.efficiency_enabled and settings.efficiency_daily_enabled and settings.efficiency_daily_schedule_time:
+            scheduler.setup_daily_task(
+                time=settings.efficiency_daily_schedule_time,
+                callback=lambda: run_daily_efficiency_aggregation(),
+                job_id='efficiency_daily'
+            )
+
+        # 注册月度能效聚合任务
+        if settings.efficiency_enabled and settings.efficiency_monthly_enabled and settings.efficiency_monthly_schedule_time:
+            monthly_day = settings.efficiency_monthly_schedule_day or 1
+            scheduler.setup_monthly_task(
+                day=monthly_day,
+                time=settings.efficiency_monthly_schedule_time,
+                callback=run_monthly_efficiency_aggregation,
+                job_id="efficiency_monthly",
+            )
+
         from loguru import logger
-        logger.info(f"Scheduler refreshed - daily: {settings.daily_enabled}, weekly: {settings.weekly_enabled}")
+        logger.info(f"Scheduler refreshed - daily: {settings.daily_enabled}, weekly: {settings.weekly_enabled}, efficiency_daily: {settings.efficiency_daily_enabled}, efficiency_monthly: {settings.efficiency_monthly_enabled}")
     except Exception as e:
         from loguru import logger
         logger.warning(f"Failed to refresh scheduler: {e}")

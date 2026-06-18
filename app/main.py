@@ -105,14 +105,27 @@ async def lifespan(app: FastAPI):
                 )
                 logger.info(f"Scheduled weekly task: weekday={weekday}, time={settings.weekly_schedule_time}")
 
-            # 注册每月任务
-            scheduler.setup_monthly_task(
-                day=1,
-                time="02:00",
-                callback=run_monthly_efficiency_aggregation,
-                job_id="monthly_efficiency",
-            )
-            logger.info("Scheduled monthly task: monthly_efficiency")
+            # 注册日常能效聚合任务
+            if settings.efficiency_enabled and settings.efficiency_daily_enabled and settings.efficiency_daily_schedule_time:
+                from app.services.efficiency_aggregator import EfficiencyAggregator
+                from app.services.gitlab_client import GitLabClient as _GLC
+                scheduler.setup_daily_task(
+                    time=settings.efficiency_daily_schedule_time,
+                    callback=lambda: run_daily_efficiency_aggregation(),
+                    job_id='efficiency_daily'
+                )
+                logger.info(f"Scheduled efficiency daily task: {settings.efficiency_daily_schedule_time}")
+
+            # 注册月度能效聚合任务
+            if settings.efficiency_enabled and settings.efficiency_monthly_enabled and settings.efficiency_monthly_schedule_time:
+                monthly_day = settings.efficiency_monthly_schedule_day or 1
+                scheduler.setup_monthly_task(
+                    day=monthly_day,
+                    time=settings.efficiency_monthly_schedule_time,
+                    callback=run_monthly_efficiency_aggregation,
+                    job_id="efficiency_monthly",
+                )
+                logger.info(f"Scheduled monthly efficiency task: day={monthly_day}, time={settings.efficiency_monthly_schedule_time}")
 
             # 注册 GitLab 同步任务
             if settings.gitlab_sync_enabled and settings.gitlab_sync_schedule_time:
@@ -995,60 +1008,145 @@ def run_scheduled_task(task_type: str = 'daily'):
                 task_log.end_time = datetime.now()
                 db.commit()
 
-        # 日报跑完后顺便聚合人员能效（仅 daily 任务且开启时）
-        if task_type == 'daily' and settings.efficiency_enabled:
-            try:
-                from datetime import date as _date, timedelta as _td
-                from app.services.efficiency_aggregator import EfficiencyAggregator
-                from app.services.gitlab_client import GitLabClient as _GLC
-
-                target_efficiency_date = _date.today() - _td(days=1)
-
-                def _client_factory(proj):
-                    """使用全局 Token 构造 GitLabClient"""
-                    tk = None
-                    if settings.global_gitlab_token:
-                        try:
-                            tk = security_service.decrypt(settings.global_gitlab_token)
-                        except ValueError:
-                            tk = None
-                    if not tk:
-                        raise RuntimeError("全局 GitLab Token 未配置")
-                    return _GLC(gitlab_url=settings.global_gitlab_url,
-                                 access_token=tk)
-
-                llm_cfg = {
-                    "api_url": settings.llm_api_url,
-                    "api_key": (security_service.decrypt(settings.llm_api_key)
-                                if settings.llm_api_key else ""),
-                    "model": settings.llm_model,
-                    "timeout": settings.llm_timeout,
-                    "max_retries": settings.llm_max_retries,
-                    "retry_delay": settings.llm_retry_delay,
-                    "review_max_tokens": settings.review_max_tokens or 10000,
-                }
-
-                top_n = settings.efficiency_work_summary_top_n or 5
-
-                aggregator = EfficiencyAggregator(
-                    db=db,
-                    gitlab_client_factory=_client_factory,
-                    llm_config=llm_cfg,
-                    top_n=top_n,
-                    custom_prompt_template=settings.efficiency_prompt_template,
-                    excluded_emails=settings.excluded_emails_list,
-                    score_samples=int(settings.efficiency_score_samples or 1),
-                )
-                agg_result = aggregator.aggregate(target_efficiency_date)
-                logger.info(f"人员能效聚合: {agg_result}")
-            except Exception as e:
-                # 聚合失败不影响日报本身
-                logger.exception(f"人员能效聚合失败: {e}")
 
     finally:
         db.close()
 
     logger.info(f"Scheduled {task_type} review task completed")
+
+
+def run_daily_efficiency_aggregation():
+    """日常能效聚合任务（独立定时执行）"""
+    from datetime import date, timedelta
+    from app.database import SessionLocal
+    from app.models import Settings
+    from app.security import security_service
+    from app.services.efficiency_aggregator import EfficiencyAggregator
+    from app.services.gitlab_client import GitLabClient
+
+    logger.info("开始日常能效聚合任务")
+
+    db = SessionLocal()
+    try:
+        settings = db.query(Settings).first()
+        if not settings:
+            logger.error("未找到系统配置，跳过日常能效聚合")
+            return
+
+        if not settings.efficiency_enabled:
+            logger.info("人员能效功能已禁用，跳过日常能效聚合")
+            return
+
+        if not settings.efficiency_daily_enabled:
+            logger.info("日常能效聚合已禁用，跳过")
+            return
+
+        target_date = date.today() - timedelta(days=1)
+
+        def _client_factory(proj):
+            """使用全局 Token 构造 GitLabClient"""
+            tk = None
+            if settings.global_gitlab_token:
+                try:
+                    tk = security_service.decrypt(settings.global_gitlab_token)
+                except ValueError:
+                    tk = None
+            if not tk:
+                raise RuntimeError("全局 GitLab Token 未配置")
+            return GitLabClient(gitlab_url=settings.global_gitlab_url, access_token=tk)
+
+        llm_cfg = {
+            "api_url": settings.llm_api_url,
+            "api_key": (security_service.decrypt(settings.llm_api_key) if settings.llm_api_key else ""),
+            "model": settings.llm_model,
+            "timeout": settings.llm_timeout,
+            "max_retries": settings.llm_max_retries,
+            "retry_delay": settings.llm_retry_delay,
+            "review_max_tokens": settings.review_max_tokens or 10000,
+        }
+
+        top_n = settings.efficiency_work_summary_top_n or 5
+
+        aggregator = EfficiencyAggregator(
+            db=db,
+            gitlab_client_factory=_client_factory,
+            llm_config=llm_cfg,
+            top_n=top_n,
+            custom_prompt_template=settings.efficiency_prompt_template,
+            excluded_emails=settings.excluded_emails_list,
+            score_samples=int(settings.efficiency_score_samples or 1),
+        )
+        result = aggregator.aggregate(target_date)
+        logger.info(f"日常能效聚合任务完成: {result}")
+    except Exception as e:
+        logger.exception(f"日常能效聚合任务失败: {e}")
+    finally:
+        db.close()
+
+
+def run_monthly_efficiency_aggregation():
+    """月度能效聚合任务（独立定时执行）"""
+    from datetime import date
+    from app.database import SessionLocal
+    from app.models import Settings
+    from app.security import security_service
+    from app.services.efficiency_monthly_aggregator import EfficiencyMonthlyAggregator
+
+    today = date.today()
+    # 计算上月
+    if today.month == 1:
+        year = today.year - 1
+        month = 12
+    else:
+        year = today.year
+        month = today.month - 1
+
+    year_month = f"{year}-{month:02d}"
+    logger.info(f"开始月度能效聚合任务: {year_month}")
+
+    db = SessionLocal()
+    try:
+        settings = db.query(Settings).first()
+        if not settings:
+            logger.error("未找到系统配置，跳过月度聚合")
+            return
+
+        if not settings.efficiency_enabled:
+            logger.info("人员能效功能已禁用，跳过月度聚合")
+            return
+
+        if not settings.efficiency_monthly_enabled:
+            logger.info("月度能效聚合已禁用，跳过")
+            return
+
+        llm_cfg = {
+            "api_url": settings.llm_api_url,
+            "api_key": (
+                security_service.decrypt(settings.llm_api_key)
+                if settings.llm_api_key
+                else ""
+            ),
+            "model": settings.llm_model,
+            "timeout": settings.llm_timeout,
+            "max_retries": settings.llm_max_retries,
+            "retry_delay": settings.llm_retry_delay,
+            "review_max_tokens": settings.review_max_tokens or 10000,
+        }
+        top_n = settings.efficiency_work_summary_top_n or 5
+
+        aggregator = EfficiencyMonthlyAggregator(
+            db=db,
+            llm_config=llm_cfg,
+            top_n=top_n,
+            custom_prompt_template=settings.efficiency_monthly_prompt_template,
+            excluded_emails=settings.excluded_emails_list,
+        )
+        result = aggregator.aggregate(year_month)
+        logger.info(f"月度能效聚合任务完成: {result}")
+    except Exception as e:
+        logger.exception(f"月度能效聚合任务失败: {e}")
+    finally:
+        db.close()
 
 
 if __name__ == "__main__":

@@ -53,6 +53,13 @@ class SettingsBase(BaseModel):
     efficiency_prompt_template: Optional[str] = None
     efficiency_monthly_prompt_template: Optional[str] = None
     efficiency_excluded_emails: Optional[str] = None
+    # 日常能效聚合调度配置
+    efficiency_daily_enabled: bool = False
+    efficiency_daily_schedule_time: str = Field(default="08:00")
+    # 月度能效聚合调度配置
+    efficiency_monthly_enabled: bool = False
+    efficiency_monthly_schedule_day: int = Field(default=1, ge=1, le=28)
+    efficiency_monthly_schedule_time: str = Field(default="02:00")
 
     # 任务限制
     max_commits_per_run: int = Field(default=100, ge=1, le=1000)
@@ -134,6 +141,22 @@ class SettingsBase(BaseModel):
         normalized = list(set(e.strip().lower() for e in emails))
         return json.dumps(normalized)
 
+    @field_validator('efficiency_daily_schedule_time')
+    @classmethod
+    def validate_efficiency_daily_schedule_time(cls, v: str) -> str:
+        """验证日常能效聚合时间格式"""
+        if not re.match(r'^\d{2}:\d{2}$', v):
+            raise ValueError(f'日常能效聚合时间格式错误: {v}，需要 HH:MM 格式')
+        return v
+
+    @field_validator('efficiency_monthly_schedule_time')
+    @classmethod
+    def validate_efficiency_monthly_schedule_time(cls, v: str) -> str:
+        """验证月度能效聚合时间格式"""
+        if not re.match(r'^\d{2}:\d{2}$', v):
+            raise ValueError(f'月度能效聚合时间格式错误: {v}，需要 HH:MM 格式')
+        return v
+
 
 class SettingsCreate(SettingsBase):
     pass
@@ -178,6 +201,13 @@ class SettingsUpdate(BaseModel):
     efficiency_prompt_template: Optional[str] = None
     efficiency_monthly_prompt_template: Optional[str] = None
     efficiency_excluded_emails: Optional[str] = None
+    # 日常能效聚合调度配置
+    efficiency_daily_enabled: Optional[bool] = None
+    efficiency_daily_schedule_time: Optional[str] = None
+    # 月度能效聚合调度配置
+    efficiency_monthly_enabled: Optional[bool] = None
+    efficiency_monthly_schedule_day: Optional[int] = Field(None, ge=1, le=28)
+    efficiency_monthly_schedule_time: Optional[str] = None
     max_commits_per_run: Optional[int] = None
     diff_max_lines: Optional[int] = None
     report_output_dir: Optional[str] = None
@@ -203,6 +233,24 @@ class SettingsUpdate(BaseModel):
             return v
         if not re.match(r'^\d{2}:\d{2}$', v):
             raise ValueError(f'GitLab 同步时间格式错误: {v}，需要 HH:MM 格式')
+        return v
+
+    @field_validator('efficiency_daily_schedule_time')
+    @classmethod
+    def validate_efficiency_daily_schedule_time(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        if not re.match(r'^\d{2}:\d{2}$', v):
+            raise ValueError(f'日常能效聚合时间格式错误: {v}，需要 HH:MM 格式')
+        return v
+
+    @field_validator('efficiency_monthly_schedule_time')
+    @classmethod
+    def validate_efficiency_monthly_schedule_time(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        if not re.match(r'^\d{2}:\d{2}$', v):
+            raise ValueError(f'月度能效聚合时间格式错误: {v}，需要 HH:MM 格式')
         return v
 
     @field_validator('efficiency_excluded_emails')

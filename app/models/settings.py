@@ -57,6 +57,15 @@ class Settings(BaseModel):
     efficiency_monthly_prompt_template = Column(Text, nullable=True, comment="月度能效提示词模板")
     efficiency_excluded_emails = Column(Text, nullable=True, comment="人员能效排除邮箱列表 (JSON 数组)")
 
+    # 日常能效聚合调度配置
+    efficiency_daily_enabled = Column(Boolean, default=False, comment="是否启用日常能效定时聚合")
+    efficiency_daily_schedule_time = Column(String(5), nullable=True, default="08:00", comment="日常能效聚合时间 (HH:MM)")
+
+    # 月度能效聚合调度配置
+    efficiency_monthly_enabled = Column(Boolean, default=False, comment="是否启用月度能效定时聚合")
+    efficiency_monthly_schedule_day = Column(Integer, default=1, comment="月度能效聚合日 (1-28)")
+    efficiency_monthly_schedule_time = Column(String(5), nullable=True, default="02:00", comment="月度能效聚合时间 (HH:MM)")
+
     # 任务限制
     max_commits_per_run = Column(Integer, default=100, comment="单次最大处理提交数")
     diff_max_lines = Column(Integer, default=10000, comment="单次 diff 最大行数限制")
