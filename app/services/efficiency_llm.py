@@ -67,18 +67,22 @@ def map_score_to_grade(score: Optional[int]) -> Optional[str]:
 # ── 解析函数 ──────────────────────────────────────────
 # 支持多种格式：总分：85分、总分: 85 分、总分85分、总得分：85分
 # 标题行优先（## 总分 / ## 月度总分），避免误抓正文中复述的"总分 100 分"等字样
-_SCORE_HEADING_PATTERN = re.compile(r"##\s*(?:月度)?总[得]?分[:：]?\s*(\d+)\s*分?")
+# 兼容 # 和 ## 两级标题（LLM 输出不一致时仍能正确解析）
+_SCORE_HEADING_PATTERN = re.compile(r"^#{1,2}\s*(?:月度)?总[得]?分[:：]?\s*(\d+)\s*分?", re.MULTILINE)
 _SCORE_PATTERN = re.compile(r"总[得]?分[:：]?\s*(\d+)\s*分?")
-# 评分明细行：- 注释（5分）：4 分，xxx（兼容半角括号与 */- 列表符）
+# 评分明细行：兼容多种格式：
+# 1. 列表格式：- 注释（5分）：4 分，xxx
+# 2. 加粗格式：- **注释质量（5分）**：5 分，xxx
+# 3. 子标题格式：## 1. 注释质量（5分）：5分
 _DIMENSION_LINE_PATTERN = re.compile(
-    # 冒号与分数之间允许 markdown 加粗/斜体标记（**X分** / *X分*），
-    # 兼容 doubao 等模型的输出，否则维度解析失败、validate_score 重算防线失效
-    r"^\s*[-*]\s*(.+?)[（(](\d+)\s*分[）)][:：]\s*\**\s*(\d+(?:\.\d+)?)\s*\**\s*分",
+    r"^\s*(?:[-*]|#+\s*\d+[.、)]?)\s*\**\s*(.+?)[（(](\d+)\s*分[）)]\s*\**[:：]\s*\**\s*(\d+(?:\.\d+)?)\s*\**\s*分",
     re.MULTILINE,
 )
-_WORK_HEADER_PATTERN = re.compile(r"##\s*[^\n]*?主要工作.*?\n(.+?)(?=\n##|\Z)", re.DOTALL)
+# 主要工作：兼容 # 和 ##，以及"今日主要工作"等变体
+_WORK_HEADER_PATTERN = re.compile(r"^#{1,2}\s*[^\n]*?主要工作.*?\n(.+?)(?=\n#{1,2}\s|\Z)", re.MULTILINE | re.DOTALL)
 _WORK_ITEM_PATTERN = re.compile(r"^\s*(?:\d+[.、)]|\-|\*)\s*(.+?)\s*$", re.MULTILINE)
-_REVIEW_SUMMARY_PATTERN = re.compile(r"##\s*[^\n]*?评分简述.*?\n(.+?)(?=\n##|\Z)", re.DOTALL)
+# 评分简述：兼容 # 和 ##
+_REVIEW_SUMMARY_PATTERN = re.compile(r"^#{1,2}\s*[^\n]*?评分简述.*?\n(.+?)(?=\n#{1,2}\s|\Z)", re.MULTILINE | re.DOTALL)
 
 
 def parse_score(text: str) -> int:
@@ -316,6 +320,119 @@ def call_llm(
     return None
 
 
+# ── LLM 兜底解析 ────────────────────────────────────────
+_LLM_PARSE_PROMPT = """请从以下文本中提取结构化信息，严格按照 JSON 格式返回。
+
+文本内容：
+{text}
+
+请提取以下字段并返回 JSON：
+{{
+    "score": 0-100的整数（总分），
+    "review_summary": "评分简述（1-2句话，200字以内）",
+    "work_summary": ["工作内容1", "工作内容2", ...]（最多{top_n}条）
+}}
+
+注意：
+1. 如果某个字段无法从文本中提取，使用默认值：score=0，review_summary=""，work_summary=[]
+2. 只返回 JSON，不要有其他内容
+3. score 必须是 0-100 的整数"""
+
+
+def parse_with_llm(
+    raw_text: str,
+    *,
+    api_url: str,
+    api_key: str,
+    model: str,
+    top_n: int = 5,
+    timeout: int = 60,
+) -> Dict[str, object]:
+    """使用 LLM 兜底解析非标准格式的输出
+
+    当正则解析失败时，调用此函数让 LLM 从原始文本中提取结构化信息。
+
+    Args:
+        raw_text: LLM 原始输出文本
+        api_url: LLM API 地址
+        api_key: API 密钥
+        model: 模型名称
+        top_n: 工作总结条目上限
+        timeout: 请求超时时间
+
+    Returns:
+        解析结果字典，包含 score/review_summary/work_summary/usage，
+        失败返回空字典
+    """
+    import json as _json
+
+    prompt = _LLM_PARSE_PROMPT.format(text=raw_text[:3000], top_n=top_n)
+
+    try:
+        with httpx.Client(timeout=timeout) as client:
+            resp = client.post(
+                api_url,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": model,
+                    "messages": [
+                        {"role": "system", "content": "你是一个数据提取助手，只返回 JSON 格式的结果。"},
+                        {"role": "user", "content": prompt},
+                    ],
+                    "temperature": 0.0,
+                    "max_tokens": 1000,
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            content = (data.get("choices", [{}])[0]
+                          .get("message", {})
+                          .get("content", ""))
+
+            # 解析本次调用的 usage
+            usage = parse_usage(data, model)
+
+            if not content:
+                logger.warning("LLM 解析返回空内容")
+                return {"usage": usage}
+
+            # 提取 JSON（兼容 markdown 代码块）
+            json_match = re.search(r"```(?:json)?\s*([\s\S]*?)```", content)
+            json_str = json_match.group(1).strip() if json_match else content.strip()
+
+            result = _json.loads(json_str)
+
+            # 验证并修正返回值
+            score = int(result.get("score", 0))
+            if not (0 <= score <= 100):
+                score = 0
+
+            review_summary = str(result.get("review_summary", ""))[:200]
+
+            work_summary = result.get("work_summary", [])
+            if not isinstance(work_summary, list):
+                work_summary = []
+            work_summary = [str(w).strip() for w in work_summary if w][:top_n]
+
+            logger.info(f"LLM 兜底解析成功: score={score}, work_items={len(work_summary)}")
+            return {
+                "score": score,
+                "review_summary": review_summary,
+                "work_summary": work_summary,
+                "usage": usage,
+            }
+
+    except _json.JSONDecodeError as e:
+        logger.warning(f"LLM 解析结果 JSON 解析失败: {e}")
+        return {}
+    except Exception as e:
+        logger.error(f"LLM 兜底解析异常: {type(e).__name__}: {e}")
+        return {}
+
+
 def call_and_parse(
     *,
     api_url: str,
@@ -325,12 +442,14 @@ def call_and_parse(
     commits_text: str,
     diffs: List[str],
     top_n: int = 5,
+    enable_llm_fallback: bool = True,
     **llm_kwargs,
 ) -> Dict[str, object]:
     """便捷封装：调用 LLM 并解析所有字段
 
     Args:
         diffs: 按文件分隔的 diff 列表，每项格式 "--- {path} ---\n{diff}"
+        enable_llm_fallback: 正则解析失败时是否启用 LLM 兜底解析（默认开启）
 
     返回字典:
         {
@@ -340,6 +459,7 @@ def call_and_parse(
             "work_summary": list[str],
             "review_summary": str,
             "success": bool,
+            "parse_method": str,      # 解析方法："regex" 或 "llm_fallback"
         }
     """
     raw_result = call_llm(
@@ -358,14 +478,59 @@ def call_and_parse(
         return {
             "raw": None, "score": 0, "grade": None,
             "work_summary": [], "review_summary": "",
-            "success": False, "usage": None,
+            "success": False, "usage": None, "parse_method": "failed",
         }
 
     # 记录 LLM 原始输出，便于调试解析问题
     logger.debug(f"LLM 原始输出 [{author_name}]: {raw[:500]}...")
 
+    # 正则解析
     score = parse_score(raw)
     score = validate_score(raw, score)
+    work_summary = parse_work_summary(raw, top_n=top_n)
+    review_summary = parse_review_summary(raw)
+
+    # 检测解析质量
+    parse_failed = (score == 0 or len(work_summary) == 0)
+
+    if parse_failed and enable_llm_fallback:
+        logger.info(f"正则解析不完整 [{author_name}]，启用 LLM 兜底解析")
+
+        fallback_result = parse_with_llm(
+            raw,
+            api_url=api_url,
+            api_key=api_key,
+            model=model,
+            top_n=top_n,
+            timeout=llm_kwargs.get("timeout", 60),
+        )
+
+        if fallback_result:
+            # 使用 LLM 解析结果补充正则解析失败的字段
+            if score == 0 and fallback_result.get("score", 0) > 0:
+                score = fallback_result["score"]
+                logger.info(f"LLM 兜底解析补充 score: {score}")
+
+            if not work_summary and fallback_result.get("work_summary"):
+                work_summary = fallback_result["work_summary"]
+                logger.info(f"LLM 兜底解析补充 work_summary: {len(work_summary)} 条")
+
+            if not review_summary and fallback_result.get("review_summary"):
+                review_summary = fallback_result["review_summary"]
+                logger.info("LLM 兜底解析补充 review_summary")
+
+            # 合并兜底解析的 usage，避免 token 统计遗漏
+            fallback_usage = fallback_result.get("usage")
+            if fallback_usage:
+                usage = _merge_token_usages([usage, fallback_usage])
+
+            parse_method = "llm_fallback"
+        else:
+            logger.warning(f"LLM 兜底解析也失败 [{author_name}]")
+            parse_method = "regex_partial"
+    else:
+        parse_method = "regex"
+
     if score == 0:
         logger.warning(f"评分解析失败 [{author_name}]，LLM 输出可能格式不符")
 
@@ -373,10 +538,11 @@ def call_and_parse(
         "raw": raw,
         "score": score,
         "grade": map_score_to_grade(score) if score > 0 else None,
-        "work_summary": parse_work_summary(raw, top_n=top_n),
-        "review_summary": parse_review_summary(raw),
+        "work_summary": work_summary,
+        "review_summary": review_summary,
         "success": True,
         "usage": usage,
+        "parse_method": parse_method,
     }
 
 
@@ -439,7 +605,7 @@ def call_and_parse_samples(
             "raw": None, "score": 0, "grade": None,
             "work_summary": [], "review_summary": "",
             "success": False, "usage": None,
-            "scores": [], "score_range": 0,
+            "scores": [], "score_range": 0, "parse_method": "failed",
         }
 
     results.sort(key=lambda r: cast(int, r["score"]))
@@ -447,6 +613,10 @@ def call_and_parse_samples(
     median_score = _median_int(scores)
     # 代表采样：分数最接近中位数的那次，其 raw/summary 作为最终展示
     representative = min(results, key=lambda r: abs(cast(int, r["score"]) - median_score))
+
+    # 收集所有使用的解析方法
+    parse_methods = set(r.get("parse_method", "unknown") for r in results)
+    parse_method = "mixed" if len(parse_methods) > 1 else (parse_methods.pop() if parse_methods else "unknown")
 
     return {
         "raw": representative["raw"],
@@ -458,6 +628,7 @@ def call_and_parse_samples(
         "usage": _merge_token_usages([r.get("usage") for r in results]),
         "scores": scores,
         "score_range": max(scores) - min(scores),
+        "parse_method": parse_method,
     }
 
 

@@ -232,6 +232,14 @@ class EfficiencyAggregator:
         )
 
         if llm_result["success"]:
+            # 记录解析方法，便于监控解析效果
+            parse_method = llm_result.get("parse_method", "unknown")
+            if parse_method != "regex":
+                logger.info(
+                    f"使用非标准解析方法 [{data['author_name']}]: "
+                    f"parse_method={parse_method}"
+                )
+
             values.update(
                 review_score=llm_result["score"],
                 review_grade=llm_result["grade"],
