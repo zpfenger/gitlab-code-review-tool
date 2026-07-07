@@ -36,14 +36,17 @@ class GitLabClient:
         """
         self.gitlab_url = gitlab_url
         self.access_token = access_token
-        # timeout: 单请求超时（秒），避免 GitLab 服务端无响应时线程永久阻塞
-        # retry_transient_errors: 对 502/503 等瞬时错误自动重试
+        # timeout: 单请求超时（秒），GitLab 无响应时快速抛错（被上层 except 捕获跳过），
+        # 避免线程永久阻塞。注意：429 限流时 python-gitlab 默认（obey_rate_limit=True）
+        # 仍会按 Retry-After 头休眠重试，表现为无日志等待，排查时先确认是否被限流。
         self.client = gitlab.Gitlab(
             gitlab_url,
             private_token=access_token,
-            timeout=120,
-            retry_transient_errors=True,
+            timeout=60,
         )
+        # 禁用系统代理（HTTP_PROXY/HTTPS_PROXY 环境变量）：GitLab 为内网服务应直连，
+        # 走本地代理（如 Clash）时隧道偶发失效会导致请求黑洞式挂起
+        self.client.session.trust_env = False
         self._user_profile_cache: Dict[int, Dict[str, Any]] = {}
 
     def test_connection(self) -> bool:
@@ -328,11 +331,10 @@ class GitLabClient:
         ref_name: Optional[str] = None,
         author: Optional[str] = None,
         per_page: int = 100,
-        page: int = 1,
         exclude_merge_commits: bool = True
     ) -> List[Dict[str, Any]]:
         """
-        获取提交列表
+        获取提交列表（自动翻页获取全部）
 
         Args:
             project_id: 项目 ID
@@ -341,7 +343,6 @@ class GitLabClient:
             ref_name: 分支或标签名
             author: 作者邮箱或用户名
             per_page: 每页数量
-            page: 页码
             exclude_merge_commits: 是否排除合并提交（默认 True）
 
         Returns:
@@ -349,7 +350,10 @@ class GitLabClient:
         """
         try:
             project = self.client.projects.get(project_id)
-            kwargs = {"per_page": per_page, "page": page, "get_all": True}
+            # 注意：不能同时传 page 和 get_all=True —— python-gitlab 翻页时会把 page kwarg
+            # 重新注入"下一页"请求，覆盖 next_url 中的页码，导致结果超过一页（单日单分支
+            # 提交数 >per_page）时永远拉取第 1 页，形成无限请求循环
+            kwargs = {"per_page": per_page, "get_all": True}
 
             if since:
                 kwargs["since"] = since

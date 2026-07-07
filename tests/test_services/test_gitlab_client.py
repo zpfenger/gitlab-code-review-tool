@@ -32,7 +32,8 @@ class TestGitLabClient:
         )
         mock_gitlab.assert_called_once_with(
             "https://gitlab.example.com",
-            private_token="test-token"
+            private_token="test-token",
+            timeout=60,
         )
 
     def test_test_connection_success(self, client, mock_gitlab):
@@ -177,6 +178,22 @@ class TestGitLabClient:
         )
 
         assert len(commits) == 5
+
+    def test_get_commits_no_page_kwarg(self, client, mock_gitlab):
+        """回归测试：commits.list 不能同时携带 page 和 get_all=True
+
+        python-gitlab 翻页时会将 page kwarg 重新注入"下一页"请求，
+        导致结果超过一页时无限循环拉取第 1 页。
+        """
+        mock_project = Mock()
+        mock_project.commits.list.return_value = []
+        mock_gitlab.return_value.projects.get.return_value = mock_project
+
+        client.get_commits(project_id=1, ref_name="dev")
+
+        _, called_kwargs = mock_project.commits.list.call_args
+        assert "page" not in called_kwargs
+        assert called_kwargs["get_all"] is True
 
     def test_get_commit_diff(self, client, mock_gitlab):
         """测试获取提交差异"""
