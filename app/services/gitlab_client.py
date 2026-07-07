@@ -36,7 +36,14 @@ class GitLabClient:
         """
         self.gitlab_url = gitlab_url
         self.access_token = access_token
-        self.client = gitlab.Gitlab(gitlab_url, private_token=access_token)
+        # timeout: 单请求超时（秒），避免 GitLab 服务端无响应时线程永久阻塞
+        # retry_transient_errors: 对 502/503 等瞬时错误自动重试
+        self.client = gitlab.Gitlab(
+            gitlab_url,
+            private_token=access_token,
+            timeout=120,
+            retry_transient_errors=True,
+        )
         self._user_profile_cache: Dict[int, Dict[str, Any]] = {}
 
     def test_connection(self) -> bool:
