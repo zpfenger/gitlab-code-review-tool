@@ -62,7 +62,7 @@ def _sanitize_filename(name: str) -> str:
     return re.sub(r'[^\w\-.]', '_', name)
 
 
-def _candidate_task_date_range(report_date: str) -> tuple[datetime, datetime] | None:
+def _candidate_task_date_range(report_date: str) -> Optional[Tuple[datetime, datetime]]:
     """Return [start_dt, end_dt_exclusive) bounds of likely TaskLog start_time
     for a report directory name.
 
