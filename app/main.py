@@ -576,9 +576,12 @@ async def reports_page(
     request: Request,
     project: str = None,
     report_type: str = None,
-    date: str = None,
+    start_date: str = None,
+    end_date: str = None,
 ):
     """Reports page"""
+    from datetime import date as date_type, timedelta
+
     user = request.session.get("user")
     if not user:
         return RedirectResponse(url="/login", status_code=302)
@@ -586,7 +589,27 @@ async def reports_page(
     # 空字符串转 None
     project = project if project and project.strip() else None
     report_type = report_type if report_type and report_type.strip() else None
-    date = date if date and date.strip() else None
+    start_date = start_date if start_date and start_date.strip() else None
+    end_date = end_date if end_date and end_date.strip() else None
+
+    # 日期范围必填，默认：当月1号 ~ 前一天
+    today = date_type.today()
+    default_start = today.replace(day=1).isoformat()
+    default_end = (today - timedelta(days=1)).isoformat()
+    start_date = start_date or default_start
+    end_date = end_date or default_end
+    # 校验格式，非法则回退默认值
+    try:
+        s = date_type.fromisoformat(start_date)
+    except ValueError:
+        start_date, s = default_start, date_type.fromisoformat(default_start)
+    try:
+        e = date_type.fromisoformat(end_date)
+    except ValueError:
+        end_date, e = default_end, date_type.fromisoformat(default_end)
+    # 起止颠倒则交换
+    if s > e:
+        start_date, end_date = end_date, start_date
 
     db = SessionLocal()
     try:
@@ -644,23 +667,22 @@ async def reports_page(
                             continue
                         date_str = date_dir.name
 
-                        # 日期筛选：
-                        #   日报目录格式: YYYY-MM-DD，精确匹配
-                        #   周报目录格式: YYYY-MM-DD_to_YYYY-MM-DD，匹配起止日期区间
-                        if date:
-                            if dir_type == 'daily':
-                                if date_str != date:
+                        # 日期范围筛选（区间交集判断）：
+                        #   日报目录格式: YYYY-MM-DD，单日是否落在 [start_date, end_date]
+                        #   周报/月报目录格式: YYYY-MM-DD_to_YYYY-MM-DD，目录区间与查询区间是否有交集
+                        if dir_type == 'daily':
+                            if not (start_date <= date_str <= end_date):
+                                continue
+                        else:
+                            parts = date_str.split('_to_')
+                            if len(parts) == 2:
+                                # 目录区间 [parts[0], parts[1]] 与查询区间 [start_date, end_date] 求交
+                                if parts[1] < start_date or parts[0] > end_date:
                                     continue
                             else:
-                                # 周报/月报：判断 date 是否落在区间内
-                                parts = date_str.split('_to_')
-                                if len(parts) == 2:
-                                    if not (parts[0] <= date <= parts[1]):
-                                        continue
-                                else:
-                                    # 格式不标准，按前缀匹配
-                                    if not date_str.startswith(date):
-                                        continue
+                                # 格式不标准，按单日处理
+                                if not (start_date <= date_str <= end_date):
+                                    continue
 
                         report_files = list(date_dir.glob("*.md"))
                         if not report_files:
@@ -692,7 +714,8 @@ async def reports_page(
         filters = {
             'project': project,
             'report_type': report_type,
-            'date': date,
+            'start_date': start_date,
+            'end_date': end_date,
         }
 
         return templates.TemplateResponse(

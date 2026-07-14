@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 from typing import Optional, List, Tuple
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 import re
 from app.database import get_db
@@ -62,22 +62,26 @@ def _sanitize_filename(name: str) -> str:
     return re.sub(r'[^\w\-.]', '_', name)
 
 
-def _candidate_task_dates(report_date: str) -> set[str]:
-    """Return likely TaskLog start dates for a report directory name."""
-    dates = set()
+def _candidate_task_date_range(report_date: str) -> tuple[datetime, datetime] | None:
+    """Return [start_dt, end_dt_exclusive) bounds of likely TaskLog start_time
+    for a report directory name.
+
+    报告目录可能是单日 (YYYY-MM-DD) 或区间 (YYYY-MM-DD_to_YYYY-MM-DD)。
+    生成任务通常在报告日期当天或次日触发，故范围取 [首日 00:00, 末日 + 2天 00:00)。
+    """
     try:
         if "_to_" in report_date:
-            _start, end = report_date.split("_to_", 1)
-            end_date = date.fromisoformat(end)
-            dates.add(end_date.isoformat())
-            dates.add((end_date + timedelta(days=1)).isoformat())
+            start_str, end_str = report_date.split("_to_", 1)
+            start_day = date.fromisoformat(start_str)
+            end_day = date.fromisoformat(end_str)
         else:
-            day = date.fromisoformat(report_date)
-            dates.add(day.isoformat())
-            dates.add((day + timedelta(days=1)).isoformat())
+            start_day = end_day = date.fromisoformat(report_date)
     except ValueError:
-        return dates
-    return dates
+        return None
+
+    start_dt = datetime.combine(start_day, datetime.min.time())
+    end_dt = datetime.combine(end_day + timedelta(days=2), datetime.min.time())
+    return start_dt, end_dt
 
 
 def _sum_report_token_usage(
@@ -86,21 +90,22 @@ def _sum_report_token_usage(
     report_type: str,
     report_date: str,
 ) -> dict:
-    candidate_dates = _candidate_task_dates(report_date)
-    if not candidate_dates:
+    bounds = _candidate_task_date_range(report_date)
+    if bounds is None:
         return empty_token_totals()
+    start_dt, end_dt = bounds
 
-    task_rows = (
-        db.query(TaskLog.id, TaskLog.start_time)
+    # 日期范围下推到 SQL，避免全表拉取后用 Python 过滤
+    task_ids = [
+        row.id
+        for row in db.query(TaskLog.id)
         .filter(
             TaskLog.project_name == project_name,
             TaskLog.task_type == report_type,
+            TaskLog.start_time >= start_dt,
+            TaskLog.start_time < end_dt,
         )
         .all()
-    )
-    task_ids = [
-        row.id for row in task_rows
-        if row.start_time and row.start_time.date().isoformat() in candidate_dates
     ]
     if not task_ids:
         return empty_token_totals()

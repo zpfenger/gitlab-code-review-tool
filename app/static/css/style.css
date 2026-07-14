@@ -185,7 +185,7 @@ body {
     background: var(--color-primary);
     color: white;
     font-size: var(--text-xs);
-    padding: 2px 8px;
+    /*padding: 2px 8px;*/
     border-radius: var(--radius-full);
 }
 
