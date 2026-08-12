@@ -55,12 +55,25 @@ class GitLabProjectMemberSyncService:
         if not settings.global_gitlab_token:
             raise ValueError("全局 GitLab Token 未配置")
 
-        token = security_service.decrypt(settings.global_gitlab_token)
-        default_password = (
-            security_service.decrypt(settings.gitlab_sync_default_password)
-            if settings.gitlab_sync_default_password
-            else None
-        )
+        # 解密凭据：失败时明确指出是哪个字段，引导用户重新配置
+        try:
+            token = security_service.decrypt(settings.global_gitlab_token)
+        except ValueError:
+            raise ValueError(
+                "全局 GitLab Token 无法解密（数据库中存储的密文已失效），"
+                "请在「系统设置」重新填写并保存该 Token"
+            )
+        try:
+            default_password = (
+                security_service.decrypt(settings.gitlab_sync_default_password)
+                if settings.gitlab_sync_default_password
+                else None
+            )
+        except ValueError:
+            raise ValueError(
+                "「新建账号初始密码」无法解密（数据库中存储的密文已失效），"
+                "请在「系统设置」重新填写并保存，或将其清空"
+            )
 
         client = GitLabClient(settings.global_gitlab_url, token)
         projects = client.list_accessible_projects()

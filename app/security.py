@@ -76,7 +76,7 @@ class SecurityService:
             return self.fernet.decrypt(ciphertext.encode()).decode()
         except Exception as e:
             raise ValueError(
-                f"解密失败（密钥可能已变更，请重新配置相关凭据）: {type(e).__name__}"
+                f"解密失败：密文无效或与当前密钥不匹配，请重新配置该凭据: {type(e).__name__}"
             ) from e
 
     def hash_password(self, password: str) -> str:
